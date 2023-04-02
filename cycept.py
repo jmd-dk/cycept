@@ -42,6 +42,17 @@ def jit(func=None, **options):
                 Set to False to display compilation commands.
                 Default value is True.
 
+
+            silent_print: bool
+                The function body is executed as part of the compilation.
+                Side effects produced by running the function are then
+                generally also produced by compiling it, which is typically
+                unwanted. Thus, by default, the print() function is disabled
+                during compilation. Set this argument to False to enable
+                print() during compilation, meaning that any print() call will
+                be run twice on the first call to the function.
+                Default value is True.
+
             html: bool
                 Set to True to produce HTML annotations of the compiled code.
                 View the HTMl using func.view_cython_html().
@@ -180,6 +191,7 @@ def _transpile(
     kwargs,
     *,
     silent=True,
+    silent_print=True,
     html=False,
     checks=True,
     clike=False,
@@ -232,6 +244,7 @@ def _transpile(
         source,
         transpilation_hash,
         func_description,
+        silent_print,
         args,
         kwargs,
     )
@@ -778,9 +791,24 @@ def _record_locals(
     source,
     transpilation_hash,
     func_description,
+    silent_print,
     args,
     kwargs,
 ):
+    @contextlib.contextmanager
+    def hack_print(silent_print):
+        if not silent_print:
+            yield
+            return
+        print_in_module = ('print' in module_dict)
+        print_func = module_dict.get('print')
+        module_dict['print'] = lambda *args, **kwargs: None
+        yield
+        if print_in_module:
+            module_dict['print'] = print_func
+        else:
+            module_dict.pop('print')
+
     class FunctionRenamer(ast.NodeTransformer):
 
         def __init__(self, name_old, name_new):
@@ -815,12 +843,16 @@ def _record_locals(
     )
     indentation = ' ' * 4
     source += f'\n{indentation}{record_str}'
-    # Define modified function within definition module
-    exec(source, module_dict)
-    # Call modified function with passed arguments,
-    # leading to types of locals being recorded.
-    return_val = module_dict[func_name_tmp](*args, **kwargs)
-    _record_types({'return': return_val}, transpilation_hash, func_description)
+    # Define and call modified function within definition module,
+    # with recording of the types added in as a side effect.
+    # Disable the print() function while doing this,
+    # unless silent_print is False.
+    with hack_print(silent_print):
+        # Define modified function within definition module
+        exec(source, module_dict)
+        # Call modified function with passed arguments
+        return_val = module_dict[func_name_tmp](*args, **kwargs)
+        _record_types({'return': return_val}, transpilation_hash, func_description)
     # Remove modified function from definition module
     module_dict.pop(func_name_tmp)
     # The globally stored record of types for the given
