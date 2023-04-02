@@ -11,16 +11,13 @@ import re
 import sys
 import tempfile
 import traceback
+import typing
 import warnings
 import webbrowser
 
 import cython
 import Cython.Build.Cythonize
 import numpy as np
-
-
-# Name of this module
-_this_module_name = pathlib.Path(__file__).stem
 
 
 # Main JIT decorator function
@@ -55,7 +52,7 @@ def jit(func=None, **options):
 
             html: bool
                 Set to True to produce HTML annotations of the compiled code.
-                View the HTMl using func.view_cython_html().
+                View the HTMl using func.__cycept__().
                 Default value is False.
 
             checks: bool
@@ -171,15 +168,24 @@ def jit(func=None, **options):
             result = np.asarray(result)
         return result
 
-    # Add storage for HTML annotations and C sources
-    # as attributes on the wrapper. Also add a dummy version
-    # of the view_cython_html() function.
-    wrapper.__cython_html__ = {}
-    wrapper.__cython_c__ = {}
-    wrapper.view_cython_html = lambda: print(
-        f'No Cython HTML annotation generated for {func.__name__}'
-    )
+    # Add storage for function call objects on wrapper
+    wrapper.__cycept__ = _CyceptStorage()
     return wrapper
+
+
+# Dict-like class for storing function call objects on the wrapper
+class _CyceptStorage(dict):
+
+    # When called, dispatch to all function call objects
+    def __call__(self):
+        if not self:
+            print('No compilation has taken place')
+        else:
+            dir_name = None
+            for call in self.values():
+                dir_name = call(dir_name)
+                if dir_name is None:
+                    break
 
 
 # Function for carrying out the transpilation
@@ -198,384 +204,527 @@ def _transpile(
     directives=None,
     optimizations=None,
 ):
-    # Get call types
-    sig = inspect.signature(func)
-    bound = sig.bind(*args, **kwargs)
-    bound.apply_defaults()
-    # Hash of the function together with the call types
-    argument_types = tuple(_get_type(val) for val in bound.arguments.values())
-    transpilation_hash = _get_transpilation_hash(func, argument_types)
-    # Look up cached transpilation
-    func_transpiled = _cache.get(transpilation_hash)
-    if func_transpiled is not None:
-        return func_transpiled
-    # Pretty signature description, used with printouts
-    sig_description = f'{func.__name__}({{}})'.format(
-        ', '.join(
-            f'{argument_name}: {_prettify_type(argument_type)}'
-            for argument_name, argument_type in zip(bound.arguments, argument_types)
-        )
-    )
+    # Fetch function call object, implementing dynamic evaluation
+    # of various attributes.
+    call = _fetch_function_call(func, args, kwargs)
+    # If the call has already been transpiled and cached,
+    # return immediately.
+    if call.compiled is not None:
+        return call.compiled.func
+    # The function call object was not found in cache
     if not silent:
-        print(f'Jitting {sig_description}')
-    # Function name and location, used with printouts
-    func_name = func.__name__
-    if func_name == '<lambda>':
-        func_name = f'_{_this_module_name}_lambda_{transpilation_hash}'
-    module, module_dict = _get_module(func)
-    func_description = f'function {func_name}() ' f'defined in {module}'
-    # Record types of passed arguments
-    _record_types(bound.arguments, transpilation_hash, func_description)
-    # Get function source
-    source = _get_source(func, func_name)
-    # Extract types from explicit user annotations
-    # and remove the annotations from the source.
-    source, annotations = _extract_annotations(
-        func,
-        source,
-        module_dict,
-        func_description,
-    )
-    # Record types of locals by executing the function
-    # with added introspection.
-    types = _record_locals(
-        func_name,
-        module_dict,
-        source,
-        transpilation_hash,
-        func_description,
-        silent_print,
-        args,
-        kwargs,
-    )
-    # Merge the recorded and explicitly annotated types
-    # and transform them to Cython types when appropriate.
-    types = _merge_types(annotations, types)
-    # Set up Cython directives
-    directives = _get_directives(directives, checks, clike)
+        print(f'Jitting {call!r}')
+    # Record types of passed arguments and locals
+    _record_types(call)
+    _record_locals(call, silent_print)
     # Convert Python function source into Cython module source
-    source = _make_cython_source(
-        func,
-        func_name,
-        func_description,
-        sig_description,
-        source,
-        sig,
-        types,
-        directives,
-    )
+    directives = _get_directives(directives, checks, clike)
+    call.to_cython(directives)
     # Cythonize and compile
     optimizations = _get_optimizations(optimizations)
-    module_compiled_dict, source_c, html_annotation = _compile(
-        source,
-        transpilation_hash,
-        optimizations,
-        html,
-        silent,
-    )
-    func_transpiled = module_compiled_dict[func_name]
+    call.compile(optimizations, html, silent)
     # Store the annotated Cython HTML as an attribute
     # on the wrapper function.
-    _place_html_annotation(func, wrapper, argument_types, source_c, html_annotation)
-    # Replace fake globals with actual globals
-    for name, val in inspect.getclosurevars(func).globals.items():
-        if name == func_name:
-            continue
-        module_compiled_dict[name] = val
-    # Cache and return transpiled function
-    _cache[transpilation_hash] = func_transpiled
-    return func_transpiled
+    wrapper.__cycept__[call.arguments_types] = call
+    return call.compiled.func
+
+
+# Function used to fetch _FunctionCall instance from the global
+# cache or instantiating a new one if not found in the cache.
+def _fetch_function_call(func, args=None, kwargs=None):
+    if isinstance(func, int):
+        # Called with function call hash
+        return _cache[func]
+    # We need to instantiate a fresh instance to obtain the hash
+    call = _FunctionCall(func, args, kwargs)
+    call_cached = _cache.get(call.hash)
+    if call_cached is not None:
+        # Found in cache. Disregard the freshly created instance.
+        return call_cached
+    # Not found in cache. Cache and return the freshly created instance.
+    _cache[call.hash] = call
+    return call
 _cache = {}
 
 
-# Function for extracting Python source code from function object
-def _get_source(func, func_name):
-    try:
-        source = inspect.getsource(func)
-    except Exception:
-        # inspect.getsource() fails in the interactive REPL.
-        # The dill package can hack around this limitation.
-        import dill
-        source = dill.source.getsource(func)
-    # Dedent source lines
-    source_lines = source.split('\n')
-    indentation = ' ' * (len(source_lines[0]) - len(source_lines[0].lstrip()))
-    if indentation:
-        for i, line in enumerate(source_lines):
-            source_lines[i] = line.removeprefix(indentation)
-        source = '\n'.join(source_lines)
-    # Ensure standard indentation (4 spaces)
-    source = ast.unparse(ast.parse(source))
-    # Convert lambda function to def function
-    if func.__name__ == '<lambda>':
-        indentation = ' ' * 4
-        source = re.subn(
-            r'.*(^|\W)lambda (.+?): ?',
-            rf'def {func_name}(\g<2>):\n{indentation}return ',
-            source,
-            1,
-        )[0]
-    # Remove jit decorator and decorators above it
-    module, module_dict = _get_module(func)
-    source_lines = source.split('\n')
-    for i, line in enumerate(source_lines):
-        if match := re.search(r'^@(.+?)(\(|$)', line):
-            deco_name = match.group(1).strip()
-            try:
-                deco_func = eval(deco_name, module_dict)
-            except Exception:
-                continue
-            if deco_func is jit:
-                source_lines = source_lines[i+1:]
+# Class for storing and dynamically handling
+# various aspects of the function call to be jitted.
+class _FunctionCall:
+
+    class Compiled(typing.NamedTuple):
+        func: object
+        module: object
+        source: str
+        html: str
+
+    def __init__(self, func, args, kwargs):
+        # Function and call arguments
+        self.func = func
+        self.args = args
+        self.kwargs = kwargs
+        # Properties to be lazily constructed
+        self._func_name = None
+        self._signature = None
+        self._arguments = None
+        self._arguments_types = None
+        self._hash = None
+        self._source = None
+        self._annotations = None
+        self._types = None
+        self._module = None
+        self._module_dict = None
+        self._globals = None
+        # Record of inferred types of local variables
+        self.locals_types = {}
+        # Compilation products
+        self.compiled = None
+
+    # Name of function (with lambda functions renamed)
+    @property
+    def func_name(self):
+        if self._func_name is not None:
+            return self._func_name
+        self._func_name = self.func.__name__
+        if self._func_name == '<lambda>':
+            self._func_name = f'_cycept_lambda_{self.hash}'
+        return self._func_name
+
+    # Function signature (no type information)
+    @property
+    def signature(self):
+        if self._signature is not None:
+            return self._signature
+        self._signature = inspect.signature(self.func)
+        return self._signature
+
+    # Argument values (dict)
+    @property
+    def arguments(self):
+        if self._arguments is not None:
+            return self._arguments
+        bound = self.signature.bind(*self.args, **self.kwargs)
+        bound.apply_defaults()
+        self._arguments = bound.arguments
+        return self._arguments
+
+    # Argument types (tuple)
+    @property
+    def arguments_types(self):
+        if self._arguments_types is not None:
+            return self._arguments_types
+        self._arguments_types = tuple(
+            _get_type(val) for val in self.arguments.values()
+        )
+        return self._arguments_types
+
+    # Hash of the function call
+    @property
+    def hash(self):
+        if self._hash is not None:
+            return self._hash
+        self._hash = abs(hash((self.func, self.arguments_types)))
+        return self._hash
+
+    # Source code of the function
+    @property
+    def source(self):
+        if self._source is not None:
+            return self._source
+        self._source = self.get_source()
+        # Separate annotations from source
+        self._annotations, self._source = self.extract_annotations()
+        return self._source
+
+    # User-defined annotations within the function
+    @property
+    def annotations(self):
+        if self._annotations is not None:
+            return self._annotations
+        self._annotations, _ = self.extract_annotations()
+        return self._annotations
+
+    # Types to be used during compilation
+    @property
+    def types(self):
+        if self._types is not None:
+            return self._types
+        # Transform recorded types of locals to str
+        # representations of corresponding Cython types.
+        locals_types = {
+            name: _convert_to_cython_type(tp)
+            for name, tp in self.locals_types.items()
+        }
+        # Transform annotations to str representations
+        # of Cython types.  Keep unrecognized types as is.
+        annotations = {
+            name: _convert_to_cython_type(tp, tp)
+            for name, tp in self.annotations.items()
+        }
+        # Merge recorded types and annotations.
+        # On conflicts we keep the annotation.
+        self._types = locals_types | annotations
+        return self._types
+
+    # Module within which function was defined
+    @property
+    def module(self):
+        if self._module is not None:
+            return self._module
+        self._module = inspect.getmodule(self.func)
+        return self._module
+
+    # Module dictionary associated with function module
+    @property
+    def module_dict(self):
+        if self._module_dict is not None:
+            return self._module_dict
+        self._module_dict = getattr(self.module, '__dict__', None)
+        if self._module_dict is None:
+            raise ModuleNotFoundError(
+                f'Failed to get __dict__ of module {self.module} '
+                f'within which function {self.func} is defined'
+            )
+        return self._module_dict
+
+    # Global names referenced within the function
+    @property
+    def globals(self):
+        if self._globals is not None:
+            return self._globals
+        self._globals = inspect.getclosurevars(self.func).globals
+        return self._globals
+
+    # Method for obtaining the function source
+    def get_source(self):
+        try:
+            source = inspect.getsource(self.func)
+        except Exception:
+            # inspect.getsource() fails in the interactive REPL.
+            # The dill package can hack around this limitation.
+            import dill
+            source = dill.source.getsource(self.func)
+        # Dedent source lines
+        lines = source.split('\n')
+        indentation = ' ' * (len(lines[0]) - len(lines[0].lstrip()))
+        if indentation:
+            for i, line in enumerate(lines):
+                lines[i] = line.removeprefix(indentation)
+            source = '\n'.join(lines)
+        # Ensure standard indentation (4 spaces)
+        source = ast.unparse(ast.parse(source))
+        # Convert lambda function to def function
+        if self.func.__name__ == '<lambda>':
+            indentation = ' ' * 4
+            source = re.subn(
+                r'.*(^|\W)lambda (.+?): ?',
+                rf'def {func_name}(\g<2>):\n{indentation}return ',
+                source,
+                1,
+            )[0]
+        # Remove jit decorator and decorators above it
+        lines = source.split('\n')
+        for i, line in enumerate(lines):
+            if match := re.search(r'^@(.+?)(\(|$)', line):
+                deco_name = match.group(1).strip()
+                try:
+                    deco_func = eval(deco_name, self.module_dict)
+                except Exception:
+                    continue
+                if deco_func is jit:
+                    lines = lines[i+1:]
+                    break
+            elif line.startswith('def '):
+                # Arrived at definition line without finding jit decorator.
+                # This happens if the "decoration" is done as
+                # func = jit(func) rather than using the @jit syntax.
                 break
-        elif line.startswith('def '):
-            # Arrived at definition line without finding jit decorator.
-            # This happens if the "decoration" is done as
-            # func = jit(func) rather than using the @jit syntax.
-            break
-    source = '\n'.join(source_lines)
-    return source
+        source = '\n'.join(lines)
+        return source
 
+    # Method for extracting user-defined type annotations.
+    # The return value is the annotations as well as
+    # the modified source without the annotations.
+    def extract_annotations(self):
 
-# Function for extracting Python module from function object
-def _get_module(func):
-    module = inspect.getmodule(func)
-    module_dict = getattr(module, '__dict__', None)
-    if module_dict is None:
-        raise ModuleNotFoundError(
-            f'Failed to get __dict__ of module {module} '
-            f'within which function {func} is defined'
-        )
-    return module, module_dict
+        class AnnotationExtractor(ast.NodeTransformer):
 
+            def __init__(self, call):
+                self.call = call
+                self.annotations = {}
 
-# Function constructing the source of a Cython extension
-# module from the source of a Python function.
-def _make_cython_source(
-    func,
-    func_name,
-    func_description,
-    sig_description,
-    source,
-    sig,
-    types,
-    directives,
-):
-    preamble = [
-        '#',  # first comment line can have C code attached to it
-        (
-            f'# {_this_module_name.capitalize()} version of '
-            f'{func_description} with type signature'
-        ),
-        f'# {sig_description}',
-    ]
-    excludes = (func_name, 'cython')
-    fake_globals = [
-        f'{name} = object()'
-        for name in inspect.getclosurevars(func).globals
-        if name not in excludes
-    ]
-    if fake_globals:
-        preamble += [
-            '\n# Declare fake globals',
-            *fake_globals,
+            def extract(self):
+                self.annotations.clear()
+                source = ast.unparse(self.visit(ast.parse(self.call.source)))
+                return self.annotations, source
+
+            def add_annotation(self, name, tp):
+                if not isinstance(name, str):
+                    name = ast.unparse(name)
+                tp = eval(ast.unparse(tp), self.call.module_dict)
+                tp_old = self.annotations.setdefault(name, tp)
+                if tp_old == tp:
+                    return
+                warnings.warn(
+                    (
+                        f'Name {name!r} annotated with different types '
+                        f'in jitted {self.call}: {tp}, {tp_old}. '
+                        f'The first will be used'
+                    ),
+                    RuntimeWarning,
+                )
+
+            def visit_arg(self, node):
+                if not node.annotation:
+                    return node
+                self.add_annotation(node.arg, node.annotation)
+                return type(node)(**(vars(node) | {'annotation': None}))
+
+            def visit_FunctionDef(self, node):
+                self.generic_visit(node)
+                if not node.returns:
+                    return node
+                self.add_annotation('return', node.returns)
+                return type(node)(**(vars(node) | {'returns': None}))
+
+            def visit_AnnAssign(self, node):
+                if node.simple:
+                    self.add_annotation(node.target, node.annotation)
+                else:
+                    warnings.warn(
+                        (
+                            f'Ignoring complex type annotation '
+                            f'{ast.unparse(node)!r} in jitted {self.call}'
+                        ),
+                        RuntimeWarning,
+                    )
+                if not node.value:
+                    # Annotation-only statement. Remove completely.
+                    return None
+                # Transform to assignment statement without annotation
+                return ast.Assign(**(
+                    vars(node) | {'targets': [node.target], 'value': node.value}
+                ))
+
+        annotations, source = AnnotationExtractor(self).extract()
+        return annotations, source
+
+    # Method for updating the source from being a Python function
+    # to being a Cython extension module.
+    def to_cython(self, directives):
+        preamble = [
+            '#',  # first comment line can have C code attached to it
+            f'# Cycept version of {self} with type signature',
+            f'# {self!r}',
         ]
-    preamble += [
-        '\n# Import Cython',
-        'import cython',
-        'cimport cython',
-    ]
-    header = [
-        '\n# Function to be jitted',
-    ]
-    if _ccall_allowed(func_name, source, sig):
-        header.append('@cython.ccall')
-    for directive, val in directives.items():
-        header.append(f'@cython.{directive}({val!r})')
-    declaration_locals = ', '.join(
-        f'{name}={tp}'
-        for name, tp in types.items()
-        if name not in ('return', _this_module_name)
-    )
-    declaration_return = types.get('return', 'object')
-    if declaration_locals:
-        header.append(f'@cython.locals({declaration_locals})')
-    header.append(f'@cython.returns({declaration_return})')
-    source = '\n'.join(
-        itertools.chain(
-            preamble,
-            header,
-            source.split('\n'),
+        excludes = (self.func_name, 'cython')
+        fake_globals = [
+            f'{name} = object()'
+            for name in self.globals
+            if name not in excludes
+        ]
+        if fake_globals:
+            preamble += [
+                '\n# Declare fake globals',
+                *fake_globals,
+            ]
+        preamble += [
+            '\n# Import Cython',
+            'import cython',
+            'cimport cython',
+        ]
+        header = ['\n# Function to be jitted']
+        if self.ccall_allowed():
+            header.append('@cython.ccall')
+        for directive, val in directives.items():
+            header.append(f'@cython.{directive}({val!r})')
+        excludes = ('return', 'cycept')
+        declaration_locals = ', '.join(
+            f'{name}={tp}'
+            for name, tp in self.types.items()
+            if name not in excludes
         )
-    )
-    return source
-
-
-# Function determining whether the function to be Cythonized
-# may be done so using @cython.ccall (cpdef).
-def _ccall_allowed(func_name, source, sig):
-    # *args and **kwargs not allowed with ccall
-    for param in sig.parameters.values():
-        if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
-            return False
-    # Closures not allowed with ccall
-    class ClosureVisitor(ast.NodeVisitor):
-        def contains_closure(self, source):
-            self._contains_closure = False
-            self.visit(ast.parse(source))
-            return self._contains_closure
-        def visit_FunctionDef(self, node):
-            self.generic_visit(node)
-            if node.name != func_name:
-                self._contains_closure = True
-        def visit_Lambda(self, node):
-            self._contains_closure = True
-    if ClosureVisitor().contains_closure(source):
-        return False
-    # No violations found
-    return True
-
-
-# Function for handling Cythonization and C compilation
-# of fully constructed Cython source.
-def _compile(source, transpilation_hash, optimizations, html, silent):
-    @contextlib.contextmanager
-    def hack_os_environ():
-        cflags_in_environ = ('CFLAGS' in os.environ)
-        cflags = os.environ.get('CFLAGS', '')
-        os.environ['CFLAGS'] = ' '.join(optimizations)
-        yield
-        if cflags_in_environ:
-            os.environ['CFLAGS'] = cflags
-        else:
-            os.environ.pop('CFLAGS')
-
-    @contextlib.contextmanager
-    def hack_sys_argv():
-        module_path = get_module_path(dir_name)
-        sys_argv = sys.argv
-        sys.argv = list(
+        declaration_return = self.types.get('return', 'object')
+        if declaration_locals:
+            header.append(f'@cython.locals({declaration_locals})')
+        header.append(f'@cython.returns({declaration_return})')
+        self._source = '\n'.join(
             itertools.chain(
-                [''],
-                ['-i', '-3'],
-                ['-q'] * silent,
-                ['-a'] * html,
-                [str(module_path.with_suffix('.pyx'))],
+                preamble,
+                header,
+                self.source.split('\n'),
             )
         )
-        yield
-        sys.argv = sys_argv
 
-    @contextlib.contextmanager
-    def hack_sys_path():
-        sys.path.append(dir_name)
-        yield
-        sys.path.remove(dir_name)
+    # Method for determining whether the function to be Cythonized
+    # may be done so using @cython.ccall (cpdef).
+    def ccall_allowed(self):
+        # *args and **kwargs not allowed with ccall
+        for param in self.signature.parameters.values():
+            if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
+                return False
 
-    @contextlib.contextmanager
-    def hack_distutils_spawn_log(silent):
-        if silent:
-            # Operating silently is the default behaviour of distutils
+        # Closures not allowed with ccall
+        class ClosureVisitor(ast.NodeVisitor):
+
+            def __init__(self, call):
+                self.call = call
+                self._contains_closure = False
+
+            def contains_closure(self):
+                self._contains_closure = False
+                self.visit(ast.parse(self.call.source))
+                return self._contains_closure
+
+            def visit_FunctionDef(self, node):
+                self.generic_visit(node)
+                if node.name != self.call.func_name:
+                    self._contains_closure = True
+
+            def visit_Lambda(self, node):
+                self._contains_closure = True
+
+        if ClosureVisitor(self).contains_closure():
+            return False
+        # No violations found
+        return True
+
+    # Method for handling Cythonization and C compilation
+    def compile(self, optimizations, html, silent):
+        @contextlib.contextmanager
+        def hack_os_environ():
+            cflags_in_environ = ('CFLAGS' in os.environ)
+            cflags = os.environ.get('CFLAGS', '')
+            os.environ['CFLAGS'] = ' '.join(optimizations)
             yield
-            return
-        import distutils
-        class StdoutPrinter:
-            @staticmethod
-            def print(msg, *args, **kwargs):
-                print(msg)
-            def __getattr__(self, attr):
-                return self.print
-        distutils_spawn_log = distutils.spawn.log
-        distutils.spawn.log = StdoutPrinter()
-        yield
-        distutils.spawn.log = distutils_spawn_log
-
-    # Cythonize and compile extension module within temporary directory,
-    # with arguments to Cython and the C compiler provided through hacking
-    # of sys.argv and os.environ. The compiled module is then imported
-    # (through hacking of sys.path) before it is removed from disk.
-    # If not compiling silently, we further hack distutils_spawn_log to
-    # print output to stdout.
-    module_name = f'_{_this_module_name}_module_{transpilation_hash}'
-    get_module_path = lambda dir_name: pathlib.Path(dir_name) / module_name
-    namespace = {}
-    html_annotation = None
-    with (
-        tempfile.TemporaryDirectory() as dir_name,
-        hack_os_environ(),
-        hack_sys_argv(),
-        hack_sys_path(),
-        hack_distutils_spawn_log(silent),
-    ):
-        module_path = get_module_path(dir_name)
-        # Write Cython source to file
-        module_path.with_suffix('.pyx').write_text(source, 'utf-8')
-        # Call Cython.Build.Cythonize.main(), which is equivalent
-        # to calling the cythonize script.
-        ok = True
-        try:
-            Cython.Build.Cythonize.main()
-        except BaseException:
-            ok = False
-            traceback.print_exc()
-        if not ok:
-            if sys.flags.interactive:
-                # Do not remove the compilation files immediately when
-                # running interactively, allowing the user to inspect them.
-                input(f'Press Enter to clean up temporary build directory {dir_name} ')
-            raise OSError('Cythonization failed')
-        # Import function from compiled module into temporary namespace
-        exec(f'import {module_name}', namespace)
-        # Read in C source and annotated HTML
-        source_c = module_path.with_suffix('.c').read_text('utf-8')
-        path_html = module_path.with_suffix('.html')
-        if path_html.is_file():
-            html_annotation = path_html.read_text('utf-8')
-    # Fetch compiled module from temporary namespace
-    module_compiled_dict = namespace[module_name].__dict__
-    return module_compiled_dict, source_c, html_annotation
-
-
-# Function for adding Cython HTML annotations to wrapper functions
-def _place_html_annotation(func, wrapper, argument_types, source_c, html_annotation):
-    # Facilitate storage and viewing of HTML annotations
-    if not wrapper.__cython_html__:
-        # Define function for easy viewing of the HTML annotations
-        # in the browser.
-        def view_cython_html(argument_types=None):
-            dir_name = tempfile.mkdtemp()  # not cleaned up by Python
-            if argument_types is None:
-                pages = wrapper.__cython_html__
+            if cflags_in_environ:
+                os.environ['CFLAGS'] = cflags
             else:
-                if not isinstance(argument_types, tuple):
-                    argument_types = (argument_types,)
-                pages = {argument_types: wrapper.__cython_html__[argument_types]}
-            paths_html = []
-            for argument_types, html_annotation in pages.items():
-                if html_annotation is None:
-                    print(f'No Cython HTML annotation generated for {func.__name__}')
-                    break
-                source_c = wrapper.__cython_c__[argument_types]
-                transpilation_hash = _get_transpilation_hash(func, argument_types)
-                module_name = f'_{_this_module_name}_module_{transpilation_hash}'
-                module_path = pathlib.Path(dir_name) / module_name
-                module_path.with_suffix('.c').write_text(source_c, 'utf-8')
-                path_html = module_path.with_suffix('.html')
-                path_html.write_text(html_annotation, 'utf-8')
-                paths_html.append(path_html.as_uri())
-            for path_html in paths_html:
-                webbrowser.open_new_tab(str(path_html))
+                os.environ.pop('CFLAGS')
 
-        # Add above function as attribute on the wrapper
-        wrapper.view_cython_html = view_cython_html
-    # Add HTML annotations and C source for the given argument types
-    wrapper.__cython_html__[argument_types] = html_annotation
-    wrapper.__cython_c__[argument_types] = source_c
+        @contextlib.contextmanager
+        def hack_sys_argv():
+            module_path = get_module_path(dir_name)
+            sys_argv = sys.argv
+            sys.argv = list(
+                itertools.chain(
+                    [''],
+                    ['-i', '-3'],
+                    ['-q'] * silent,
+                    ['-a'] * html,
+                    [str(module_path.with_suffix('.pyx'))],
+                )
+            )
+            yield
+            sys.argv = sys_argv
 
+        @contextlib.contextmanager
+        def hack_sys_path():
+            sys.path.append(dir_name)
+            yield
+            sys.path.remove(dir_name)
 
-# Function for constructing hash of function with argument types
-def _get_transpilation_hash(func, argument_types):
-    return abs(hash((func, argument_types)))
+        @contextlib.contextmanager
+        def hack_distutils_spawn_log(silent):
+            if silent:
+                # Operating silently is the default behaviour of distutils
+                yield
+                return
+            import distutils
+            class StdoutPrinter:
+                @staticmethod
+                def print(msg, *args, **kwargs):
+                    print(msg)
+                def __getattr__(self, attr):
+                    return self.print
+            distutils_spawn_log = distutils.spawn.log
+            distutils.spawn.log = StdoutPrinter()
+            yield
+            distutils.spawn.log = distutils_spawn_log
+
+        # Cythonize and compile extension module within temporary directory,
+        # with arguments to Cython and the C compiler provided through hacking
+        # of sys.argv and os.environ. The compiled module is then imported
+        # (through hacking of sys.path) before it is removed from disk.
+        # If not compiling silently, we further hack distutils_spawn_log to
+        # print output to stdout.
+        module_name = f'_cycept_module_{self.hash}'
+        get_module_path = lambda dir_name: pathlib.Path(dir_name) / module_name
+        namespace = {}
+        html_annotation = None
+        with (
+            tempfile.TemporaryDirectory() as dir_name,
+            hack_os_environ(),
+            hack_sys_argv(),
+            hack_sys_path(),
+            hack_distutils_spawn_log(silent),
+        ):
+            module_path = get_module_path(dir_name)
+            # Write Cython source to file
+            module_path.with_suffix('.pyx').write_text(self.source, 'utf-8')
+            # Call Cython.Build.Cythonize.main(), which is equivalent
+            # to calling the cythonize script.
+            ok = True
+            try:
+                Cython.Build.Cythonize.main()
+            except BaseException:
+                ok = False
+                traceback.print_exc()
+            if not ok:
+                if sys.flags.interactive:
+                    # Do not remove the compilation files immediately when
+                    # running interactively, allowing the user to inspect them.
+                    input(f'Press Enter to clean up temporary build directory {dir_name} ')
+                raise OSError('Cythonization failed')
+            # Import function from compiled module into temporary namespace
+            exec(f'import {module_name}', namespace)
+            # Read in C source and annotated HTML
+            source_c = module_path.with_suffix('.c').read_text('utf-8')
+            path_html = module_path.with_suffix('.html')
+            if path_html.is_file():
+                html_annotation = path_html.read_text('utf-8')
+        # Extract compiled function
+        module_compiled = namespace[module_name]
+        module_compiled_dict = module_compiled.__dict__
+        func_compiled = module_compiled_dict[self.func_name]
+        # Replace fake globals with actual globals within extension module
+        for name, val in self.globals.items():
+            if name == self.func_name:
+                continue
+            module_compiled_dict[name] = val
+        # Store compilation products
+        self.compiled = self.Compiled(
+            func_compiled,
+            module_compiled,
+            source_c,
+            html_annotation,
+        )
+
+    # Method for viewing the annotated HTML
+    def __call__(self, dir_name=None):
+        if self.compiled is None or self.compiled.html is None:
+            print(f'No Cython HTML annotation generated for {self.func_name}()')
+            return
+        if dir_name is None:
+            dir_name = tempfile.mkdtemp()  # not cleaned up
+        module_path = pathlib.Path(dir_name) / self.compiled.module.__name__
+        module_path.with_suffix('.c').write_text(self.compiled.source, 'utf-8')
+        path_html = module_path.with_suffix('.html')
+        path_html.write_text(self.compiled.html, 'utf-8')
+        webbrowser.open_new_tab(str(path_html.as_uri()))
+        return dir_name
+
+    # For pretty printing (showing types)
+    def __repr__(self):
+        return f'{self.func_name}({{}})'.format(
+            ', '.join(
+                f'{name}: {_prettify_type(tp)}'
+                for name, tp in zip(self.arguments, self.arguments_types)
+            )
+        )
+
+    # For pretty printing (showing module)
+    def __str__(self):
+        return f'function {self.func_name}() defined in {self.module}'
 
 
 # Function for setting up Cython directives
@@ -584,7 +733,6 @@ def _get_directives(directives, checks, clike):
         if not hasattr(cython, directive):
             return
         directives.setdefault(directive, val)
-
     if directives is None:
         directives = {}
     if not checks:
@@ -708,124 +856,52 @@ class NdarrayTypeInfo:
         return self.__name__.removeprefix('cython.')
 
 
-# Function for extracting user-defined type annotations.
-# The return value is the source without the annotations,
-# as well as the stripped off annotations.
-def _extract_annotations(func, source, module_dict, func_description):
-
-    class AnnotationExtractor(ast.NodeTransformer):
-
-        def extract(self, source):
-            self.annotations = {}
-            source = ast.unparse(self.visit(ast.parse(source)))
-            return source, self.annotations
-
-        def add_annotation(self, name, tp):
-            if not isinstance(name, str):
-                name = ast.unparse(name)
-            tp = eval(ast.unparse(tp), module_dict)
-            tp_old = self.annotations.setdefault(name, tp)
-            if tp_old == tp:
-                return
-            warnings.warn(
-                (
-                    f'Name {name!r} annotated with different types '
-                    f'in jitted {func_description}: {tp}, {tp_old}. '
-                    f'The first will be used'
-                ),
-                RuntimeWarning,
-            )
-
-        def visit_arg(self, node):
-            if not node.annotation:
-                return node
-            self.add_annotation(node.arg, node.annotation)
-            return type(node)(**(vars(node) | {'annotation': None}))
-
-        def visit_FunctionDef(self, node):
-            self.generic_visit(node)
-            if not node.returns:
-                return node
-            self.add_annotation('return', node.returns)
-            return type(node)(**(vars(node) | {'returns': None}))
-
-        def visit_AnnAssign(self, node):
-            if node.simple:
-                self.add_annotation(node.target, node.annotation)
-            else:
-                warnings.warn(
-                    (
-                        f'Ignoring complex type annotation '
-                        f'{ast.unparse(node)!r} in jitted {func_description}'
-                    ),
-                    RuntimeWarning,
-                )
-            if not node.value:
-                # Annotation-only statement. Remove completely.
-                return None
-            # Transform to assignment statement without annotation
-            return ast.Assign(**(
-                vars(node) | {'targets':[node.target], 'value': node.value}
-            ))
-
-    # Separate annotations from source
-    source, annotations = AnnotationExtractor().extract(source)
-    return source, annotations
-
-
-# Function keeping a global record of types of names
-# (arguments as well as locals) for all transpilations.
-def _record_types(variables, transpilation_hash, func_description):
-    record = _records_types[transpilation_hash]
+# Function for recording types
+def _record_types(call, variables=None):
+    if isinstance(call, int):
+        # Called with function call hash
+        call = _fetch_function_call(call)
+    if variables is None:
+        # Use function call arguments
+        variables = call.arguments
     for name, val in variables.items():
         tp = _get_type(val)
-        tp_old = record.setdefault(name, tp)
+        tp_old = call.locals_types.setdefault(name, tp)
         if tp_old == tp:
             continue
         if (
-            (tp_old in (bool, int) and tp in (bool, int))
-            or (tp_old == float and tp in (int, bool))
+            (tp_old in (float, int, bool) and tp in (int, bool))
             or (tp_old == complex and tp in (float, int, bool))
         ):
             # Allow implicit upcasting of Python scalars
             # as well as casting back and forth between bools and ints.
-            record[name] = tp_old
+            call.locals_types.record[name] = tp_old
         else:
             warnings.warn(
                 (
                     f'Name {name!r} assigned different types '
-                    f'in jitted {func_description}: {tp}, {tp_old}. '
+                    f'in jitted {call}: {tp}, {tp_old}. '
                     f'The first will be used'
                 ),
                 RuntimeWarning,
             )
-_records_types = collections.defaultdict(dict)
 
 
 # Function for obtaining the types of locals within a function
-def _record_locals(
-    func_name,
-    module_dict,
-    source,
-    transpilation_hash,
-    func_description,
-    silent_print,
-    args,
-    kwargs,
-):
+def _record_locals(call, silent_print):
     @contextlib.contextmanager
     def hack_print(silent_print):
         if not silent_print:
             yield
             return
-        print_in_module = ('print' in module_dict)
-        print_func = module_dict.get('print')
-        module_dict['print'] = lambda *args, **kwargs: None
+        print_in_module = ('print' in call.module_dict)
+        print_func = call.module_dict.get('print')
+        call.module_dict['print'] = lambda *args, **kwargs: None
         yield
         if print_in_module:
-            module_dict['print'] = print_func
+            call.module_dict['print'] = print_func
         else:
-            module_dict.pop('print')
+            call.module_dict.pop('print')
 
     class FunctionRenamer(ast.NodeTransformer):
 
@@ -843,17 +919,14 @@ def _record_locals(
                 return node
             return rename
 
-    # Rename function within source
-    func_name_tmp = f'_{_this_module_name}_func_{transpilation_hash}'
+    # Create copy of function source with the function renamed
+    func_name_tmp = f'_cycept_func_{call.hash}'
     source = ast.unparse(
-        FunctionRenamer(func_name, func_name_tmp)
-        .visit(ast.parse(source))
+        FunctionRenamer(call.func_name, func_name_tmp)
+        .visit(ast.parse(call.source))
     )
     # Add type recording calls to source
-    record_str = (
-        f'import {_this_module_name}; {_this_module_name}._record_types(locals(), '
-        f'{transpilation_hash}, {func_description!r})'
-    )
+    record_str = f'import cycept; cycept._record_types({call.hash}, locals())'
     source = re.sub(
         r'( |;)return($|\W)',
         rf'\g<1>{record_str}; return\g<2>',
@@ -862,42 +935,18 @@ def _record_locals(
     indentation = ' ' * 4
     source += f'\n{indentation}{record_str}'
     # Define and call modified function within definition module,
-    # with recording of the types added in as a side effect.
+    # with recording of the types added as a side effect.
     # Disable the print() function while doing this,
     # unless silent_print is False.
     with hack_print(silent_print):
         # Define modified function within definition module
-        exec(source, module_dict)
+        exec(source, call.module_dict)
         # Call modified function with passed arguments
-        return_val = module_dict[func_name_tmp](*args, **kwargs)
-        _record_types({'return': return_val}, transpilation_hash, func_description)
+        return_val = call.module_dict[func_name_tmp](*call.args, **call.kwargs)
     # Remove modified function from definition module
-    module_dict.pop(func_name_tmp)
-    # The globally stored record of types for the given
-    # function call is now complete. Pop it.
-    types = _records_types.pop(transpilation_hash, {})
-    return types
-
-
-# Function for merging recorded types with explicitly annotated types.
-# Recorded types will be converted to Cython types and all types will
-# be transformed to their str representation.
-def _merge_types(annotations, types):
-    # Transform recorded types to str representation of Cython types
-    types = {
-        name: _convert_to_cython_type(tp)
-        for name, tp in types.items()
-    }
-    # Transform annotations to str representation of Cython types.
-    # Keep unrecognized types as is.
-    annotations = {
-        name: _convert_to_cython_type(tp, tp)
-        for name, tp in annotations.items()
-    }
-    # Merge recorded types and annotations. On conflicts we keep
-    # the annotation without emitting a warning.
-    types |= annotations
-    return types
+    call.module_dict.pop(func_name_tmp)
+    # Add return type to record
+    _record_types(call, {'return': return_val})
 
 
 # Function returning pretty str representation of type
@@ -938,6 +987,7 @@ def _convert_to_cython_type(tp, default=object):
     if tp_str is not None:
         return tp_str
     return str(tp)
+
 
 # Mapping of Python/NumPy types to str representations
 # of corresponding Cython types.
