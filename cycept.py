@@ -222,12 +222,12 @@ def _transpile(
     func_name = func.__name__
     if func_name == '<lambda>':
         func_name = f'_{_this_module_name}_lambda_{transpilation_hash}'
-    module, module_dict = _getmodule(func)
+    module, module_dict = _get_module(func)
     func_description = f'function {func_name}() ' f'defined in {module}'
     # Record types of passed arguments
     _record_types(bound.arguments, transpilation_hash, func_description)
     # Get function source
-    source = _getsource(func, func_name)
+    source = _get_source(func, func_name)
     # Extract types from explicit user annotations
     # and remove the annotations from the source.
     source, annotations = _extract_annotations(
@@ -289,7 +289,7 @@ _cache = {}
 
 
 # Function for extracting Python source code from function object
-def _getsource(func, func_name):
+def _get_source(func, func_name):
     try:
         source = inspect.getsource(func)
     except Exception:
@@ -316,7 +316,7 @@ def _getsource(func, func_name):
             1,
         )[0]
     # Remove jit decorator and decorators above it
-    module, module_dict = _getmodule(func)
+    module, module_dict = _get_module(func)
     source_lines = source.split('\n')
     for i, line in enumerate(source_lines):
         if match := re.search(r'^@(.+?)(\(|$)', line):
@@ -338,7 +338,7 @@ def _getsource(func, func_name):
 
 
 # Function for extracting Python module from function object
-def _getmodule(func):
+def _get_module(func):
     module = inspect.getmodule(func)
     module_dict = getattr(module, '__dict__', None)
     if module_dict is None:
@@ -388,11 +388,7 @@ def _make_cython_source(
     header = [
         '\n# Function to be jitted',
     ]
-    for param in sig.parameters.values():
-        if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
-            # *args and **kwargs not allowed with ccall (cdef)
-            break
-    else:
+    if _ccall_allowed(func_name, source, sig):
         header.append('@cython.ccall')
     for directive, val in directives.items():
         header.append(f'@cython.{directive}({val!r})')
@@ -413,6 +409,31 @@ def _make_cython_source(
         )
     )
     return source
+
+
+# Function determining whether the function to be Cythonized
+# may be done so using @cython.ccall (cpdef).
+def _ccall_allowed(func_name, source, sig):
+    # *args and **kwargs not allowed with ccall
+    for param in sig.parameters.values():
+        if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
+            return False
+    # Closures not allowed with ccall
+    class ClosureVisitor(ast.NodeVisitor):
+        def contains_closure(self, source):
+            self._contains_closure = False
+            self.visit(ast.parse(source))
+            return self._contains_closure
+        def visit_FunctionDef(self, node):
+            self.generic_visit(node)
+            if node.name != func_name:
+                self._contains_closure = True
+        def visit_Lambda(self, node):
+            self._contains_closure = True
+    if ClosureVisitor().contains_closure(source):
+        return False
+    # No violations found
+    return True
 
 
 # Function for handling Cythonization and C compilation
@@ -458,15 +479,12 @@ def _compile(source, transpilation_hash, optimizations, html, silent):
             yield
             return
         import distutils
-
         class StdoutPrinter:
             @staticmethod
             def print(msg, *args, **kwargs):
                 print(msg)
-
             def __getattr__(self, attr):
                 return self.print
-
         distutils_spawn_log = distutils.spawn.log
         distutils.spawn.log = StdoutPrinter()
         yield
@@ -739,7 +757,7 @@ def _extract_annotations(func, source, module_dict, func_description):
                     (
                         f'Ignoring complex type annotation '
                         f'{ast.unparse(node)!r} in jitted {func_description}'
-                    ), 
+                    ),
                     RuntimeWarning,
                 )
             if not node.value:
