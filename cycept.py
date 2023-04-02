@@ -269,6 +269,7 @@ class _FunctionCall:
         self._arguments_types = None
         self._hash = None
         self._source = None
+        self._ast = None
         self._annotations = None
         self._types = None
         self._module = None
@@ -333,7 +334,16 @@ class _FunctionCall:
         self._source = self.get_source()
         # Separate annotations from source
         self._annotations, self._source = self.extract_annotations()
+        # Invalidate AST
+        self._ast = None
         return self._source
+
+    @property
+    def ast(self):
+        if self._ast is not None:
+            return self._ast
+        self._ast = ast.parse(self.source)
+        return self._ast
 
     # User-defined annotations within the function
     @property
@@ -454,7 +464,7 @@ class _FunctionCall:
 
             def extract(self):
                 self.annotations.clear()
-                source = ast.unparse(self.visit(ast.parse(self.call.source)))
+                source = ast.unparse(self.visit(self.call.ast))
                 return self.annotations, source
 
             def add_annotation(self, name, tp):
@@ -572,7 +582,7 @@ class _FunctionCall:
 
             def contains_closure(self):
                 self._contains_closure = False
-                self.visit(ast.parse(self.call.source))
+                self.visit(self.call.ast)
                 return self._contains_closure
 
             def visit_FunctionDef(self, node):
@@ -922,8 +932,7 @@ def _record_locals(call, silent_print):
     # Create copy of function source with the function renamed
     func_name_tmp = f'_cycept_func_{call.hash}'
     source = ast.unparse(
-        FunctionRenamer(call.func_name, func_name_tmp)
-        .visit(ast.parse(call.source))
+        FunctionRenamer(call.func_name, func_name_tmp).visit(call.ast)
     )
     # Add type recording calls to source
     record_str = f'import cycept; cycept._record_types({call.hash}, locals())'
