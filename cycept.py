@@ -48,7 +48,7 @@ def jit(func=None, **options):
                 Default value is False.
 
             checks: bool
-                Set to True to disable the following checks within Cython:
+                Set to False to disable the following checks within Cython:
                     * boundscheck
                     * initializedcheck
                 Disabling these checks speeds up array code.
@@ -140,12 +140,13 @@ def jit(func=None, **options):
         of specific variables, e.g.
 
             @jit
-            def func(x: int, y: list) -> float:
-                z: float = y[x]
-                return z
+            def func(a: int, b: list) -> float:
+                c: object
+                c = b[a]
+                d: float = (c**1000 % 42)**0.5
+                return d
 
             func(2, list(range(0, 10, 3)))
- 
     """
     if func is None:
         return functools.partial(jit, **options)
@@ -199,7 +200,7 @@ def _transpile(
     # Pretty signature description, used with printouts
     sig_description = f'{func.__name__}({{}})'.format(
         ', '.join(
-            f'{argument_name}: {prettify_type(argument_type)}'
+            f'{argument_name}: {_prettify_type(argument_type)}'
             for argument_name, argument_type in zip(bound.arguments, argument_types)
         )
     )
@@ -235,7 +236,7 @@ def _transpile(
         kwargs,
     )
     # Merge the recorded and explicitly annotated types
-    # and transform them to Cythn types when appropriate.
+    # and transform them to Cython types when appropriate.
     types = _merge_types(annotations, types)
     # Set up Cython directives
     directives = _get_directives(directives, checks, clike)
@@ -619,20 +620,36 @@ _optimizations_default = [
 
 # Function for extracting the Python/NumPy type off of a value
 def _get_type(val):
-    if isinstance(val, np.ndarray):
-        # NumPy ndarray, possibly to be represented as a typed memoryview
-        c_contig = val.flags['C_CONTIGUOUS']
-        f_contig = val.flags['F_CONTIGUOUS']
+    try:
+        return _construct_ndarray_type_info(val)
+    except TypeError:
+        pass
+    return type(val)
+
+
+# Function responsible for constructing NdarrayTypeInfo instances,
+# storing type information of arrays/memoryviews.
+def _construct_ndarray_type_info(a):
+    def construct(dtype, ndim, c_contig, f_contig):
         if c_contig:
             # Disregard F-contiguousness if C-contiguous
             f_contig = False
-        return NdarrayTypeInfo(
-            val.dtype.type,
-            val.ndim,
-            c_contig,
-            f_contig,
+        return NdarrayTypeInfo(dtype, ndim, c_contig, f_contig)
+    if isinstance(a, np.ndarray):
+        return construct(
+            a.dtype.type,
+            a.ndim,
+            a.flags['C_CONTIGUOUS'],
+            a.flags['F_CONTIGUOUS'],
         )
-    return type(val)
+    if isinstance(a, type(cython.int[:])):
+        return NdarrayTypeInfo(
+            _cython_types_reverse[_cython_types[a.dtype]],
+            a.ndim,
+            a.is_c_contig,
+            a.is_f_contig,
+        )
+    raise TypeError(f'_construct_ndarray_type_info() called with type {type(a)}')
 
 
 # Type used to discern different kinds of arrays (memoryviews)
@@ -640,8 +657,8 @@ def _get_type(val):
 class NdarrayTypeInfo:
     dtype: np.dtype.type
     ndim: int
-    c_contiguous: bool
-    f_contiguous: bool
+    c_contig: bool
+    f_contig: bool
 
     @property
     def dtype_cython(self):
@@ -650,9 +667,9 @@ class NdarrayTypeInfo:
     @property
     def __name__(self):
         name = '{}[{}]'.format(self.dtype_cython, ', '.join(':' * self.ndim))
-        if self.c_contiguous:
+        if self.c_contig:
             name = name.replace(':]', '::1]')
-        elif self.f_contiguous:
+        elif self.f_contig:
             name = name.replace('[:', '[::1')
         return name
 
@@ -811,6 +828,7 @@ def _record_locals(
     types = _records_types.pop(transpilation_hash, {})
     return types
 
+
 # Function for merging recorded types with explicitly annotated types.
 # Recorded types will be converted to Cython types and all types will
 # be transformed to their str representation.
@@ -820,50 +838,66 @@ def _merge_types(annotations, types):
         name: _convert_to_cython_type(tp)
         for name, tp in types.items()
     }
-    # Transform annotations to str representations
-    for name, tp in annotations.items():
-        if isinstance(tp, str):
-            tp = f'{tp!r}'
-        else:
-            module_name = getattr(tp, '__module__', '').split('.')[0].lower()
-            if module_name == 'cython':
-                tp =  f'cython.{tp}'
-            elif module_name == 'numpy':
-                tp = _cython_types.get(tp, tp)
-            else:
-                tp = getattr(tp, '__name__', tp)
-        annotations[name] = str(tp)
+    # Transform annotations to str representation of Cython types.
+    # Keep unrecognized types as is.
+    annotations = {
+        name: _convert_to_cython_type(tp, tp)
+        for name, tp in annotations.items()
+    }
     # Merge recorded types and annotations. On conflicts we keep
     # the annotation without emitting a warning.
     types |= annotations
     return types
 
-# Function returnin pretty str representation of type
-def prettify_type(tp):
+
+# Function returning pretty str representation of type
+def _prettify_type(tp):
     if isinstance(tp, NdarrayTypeInfo):
         return str(tp)
-    tp_name = getattr(tp, '__name__', None)
-    if not tp_name:
+    tp_name = getattr(tp, '__name__', getattr(tp, 'name', None))
+    if tp_name is None:
         tp_name = str(tp)
     return tp_name
 
 
-# Function for converting a Python/NumPy type
-# to the corresponding Cython type.
-def _convert_to_cython_type(tp):
-    if isinstance(tp, NdarrayTypeInfo):
+# Function for converting a Python/NumPy/Cython type to the
+# str representation of the corresponding Cython type.
+def _convert_to_cython_type(tp, default=object):
+    def convert_array_type(tp):
         if _cython_types[tp.dtype] == 'object':
             return 'object'
         return tp.__name__
-    return _cython_types[tp]
-# Mapping of Python/NumPy types to str literals
-# of equivalent Cython types.
+    # Type already given as str
+    if isinstance(tp, str):
+        return repr(tp)
+    # NumPy array or Cython memoryview
+    try:
+        tp = _construct_ndarray_type_info(tp)
+    except TypeError:
+        pass
+    if isinstance(tp, NdarrayTypeInfo):
+        return convert_array_type(tp)
+    # Python/NumPy/Cython
+    tp_str = _cython_types.get(tp)
+    if tp_str is not None:
+        return tp_str
+    # Unrecognized
+    if default is not None and tp is not default:
+        return _convert_to_cython_type(default, None)
+    tp_str = getattr(tp, '__name__', getattr(tp, 'name', None))
+    if tp_str is not None:
+        return tp_str
+    return str(tp)
+
+# Mapping of Python/NumPy types to str representations
+# of corresponding Cython types.
+_cython_default_integral = 'cython.Py_ssize_t'  # typically 64-bit
 _cython_types = collections.defaultdict(
     lambda: 'object',
     {
         # Python scalars
         bool: 'cython.bint',
-        int: 'cython.Py_ssize_t',
+        int: _cython_default_integral,
         float: 'cython.double',
         complex: 'cython.complex',
         # NumPy signed integral scalars
@@ -881,9 +915,9 @@ _cython_types = collections.defaultdict(
         np.float64: 'cython.double',
         np.longdouble: 'cython.longdouble',  # platform dependent
         # NumPy complex floating scalars
-        np.complex64: 'cython.floatcomplex',  # may not be available
+        np.complex64: 'cython.floatcomplex',  # Cython type may not be available at compile time
         np.complex128: 'cython.doublecomplex',
-        np.complex256: 'cython.longdoublecomplex',  # may not be available, np.longdoublecomplex not defined
+        np.complex256: 'cython.longdoublecomplex',  # Cython type may not be available at compile time; np.longdoublecomplex not defined
         # Python containers
         **{
             tp: tp.__name__
@@ -893,6 +927,7 @@ _cython_types = collections.defaultdict(
                 dict,
                 frozenset,
                 list,
+                object,
                 set,
                 str,
                 tuple,
@@ -900,4 +935,15 @@ _cython_types = collections.defaultdict(
         },
     },
 )
+# Also create reverse mapping
+_cython_types_reverse = collections.defaultdict(
+    lambda: object,
+    {name: tp for tp, name in _cython_types.items()},
+)
+# Now add the Cython types themselves
+_cython_types |= {
+    getattr(cython, name.removeprefix('cython.')): name
+    for tp, name in _cython_types.items()
+    if name.startswith('cython.')
+}
 
