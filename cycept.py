@@ -410,7 +410,16 @@ class _FunctionCall:
         except Exception:
             # inspect.getsource() fails in the interactive REPL.
             # The dill package can hack around this limitation.
-            import dill
+            try:
+                import dill
+            except ModuleNotFoundError:
+                print(
+                    f'To use cycept.jit interactively, '
+                    f'please install the dill Python package:\n'
+                    f'    {sys.executable} -m pip install dill\n',
+                    file=sys.stderr,
+                )
+                raise
             source = dill.source.getsource(self.func)
         # Dedent source lines
         lines = source.split('\n')
