@@ -932,7 +932,8 @@ def _record_locals(call, silent_print):
         FunctionRenamer(call.func_name, func_name_tmp).visit(call.ast)
     )
     # Add type recording calls to source
-    record_str = f'import cycept; cycept._record_types({call.hash}, locals())'
+    cycept_module_refname = '__cycept__'
+    record_str = f'{cycept_module_refname}._record_types({call.hash}, locals())'
     source = re.sub(
         r'( |;)return($|\W)',
         rf'\g<1>{record_str}; return\g<2>',
@@ -942,8 +943,14 @@ def _record_locals(call, silent_print):
     source += f'\n{indentation}{record_str}'
     # Define and call modified function within definition module,
     # with recording of the types added as a side effect.
-    # Disable the print() function while doing this,
-    # unless silent_print is False.
+    # Temporarily add a reference to this module on the module of
+    # the function to be jitted. Disable the print() function while
+    # performing this operation, unless silent_print is False.
+    @contextlib.contextmanager
+    def hack_module_dict():
+        call.module_dict[cycept_module_refname] = sys.modules['cycept']
+        yield
+        call.module_dict.pop(cycept_module_refname)
     @contextlib.contextmanager
     def hack_print(silent_print):
         if not silent_print:
@@ -957,7 +964,7 @@ def _record_locals(call, silent_print):
             call.module_dict['print'] = print_func
         else:
             call.module_dict.pop('print')
-    with hack_print(silent_print):
+    with hack_module_dict(), hack_print(silent_print):
         # Define modified function within definition module
         exec(source, call.module_dict)
         # Call modified function with passed arguments
