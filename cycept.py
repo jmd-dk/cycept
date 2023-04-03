@@ -223,8 +223,7 @@ def _transpile(
     # Cythonize and compile
     optimizations = _get_optimizations(optimizations)
     call.compile(optimizations, html, silent)
-    # Store the annotated Cython HTML as an attribute
-    # on the wrapper function.
+    # Store the function call object on the wrapper function
     wrapper.__cycept__[call.arguments_types] = call
     return call.compiled.func
 
@@ -371,7 +370,7 @@ class _FunctionCall:
             for name, tp in self.annotations.items()
         }
         # Merge recorded types and annotations.
-        # On conflicts we keep the annotation.
+        # On conflict we keep the annotation.
         self._types = locals_types | annotations
         return self._types
 
@@ -723,7 +722,7 @@ class _FunctionCall:
         webbrowser.open_new_tab(str(path_html.as_uri()))
         return dir_name
 
-    # For pretty printing (showing types)
+    # Method for pretty printing (showing types)
     def __repr__(self):
         return f'{self.func_name}({{}})'.format(
             ', '.join(
@@ -732,7 +731,7 @@ class _FunctionCall:
             )
         )
 
-    # For pretty printing (showing module)
+    # Method for pretty printing (showing module)
     def __str__(self):
         return f'function {self.func_name}() defined in {self.module}'
 
@@ -809,10 +808,9 @@ _optimizations_default = [
 
 # Function for extracting the Python/NumPy type off of a value
 def _get_type(val):
-    try:
-        return _construct_ndarray_type_info(val)
-    except TypeError:
-        pass
+    tp = _construct_ndarray_type_info(val)
+    if tp is not None:
+        return tp
     return type(val)
 
 
@@ -824,21 +822,26 @@ def _construct_ndarray_type_info(a):
             # Disregard F-contiguousness if C-contiguous
             f_contig = False
         return NdarrayTypeInfo(dtype, ndim, c_contig, f_contig)
-    if isinstance(a, np.ndarray):
+    if isinstance(a, NdarrayTypeInfo):
+        return a
+    if isinstance(a, _numpy_array_type):
         return construct(
             a.dtype.type,
             a.ndim,
             a.flags['C_CONTIGUOUS'],
             a.flags['F_CONTIGUOUS'],
         )
-    if isinstance(a, type(cython.int[:])):
-        return NdarrayTypeInfo(
+    if isinstance(a, _cython_array_type):
+        return construct(
             _cython_types_reverse[_cython_types[a.dtype]],
             a.ndim,
             a.is_c_contig,
             a.is_f_contig,
         )
-    raise TypeError(f'_construct_ndarray_type_info() called with type {type(a)}')
+    # Passed value is not an array
+    return None
+_numpy_array_type = np.ndarray
+_cython_array_type = type(cython.int[:])
 
 
 # Type used to discern different kinds of arrays (memoryviews)
@@ -963,9 +966,9 @@ def _prettify_type(tp):
     if isinstance(tp, NdarrayTypeInfo):
         return str(tp)
     tp_name = getattr(tp, '__name__', getattr(tp, 'name', None))
-    if tp_name is None:
-        tp_name = str(tp)
-    return tp_name
+    if tp_name is not None:
+        return tp_name
+    return str(tp)
 
 
 # Function for converting a Python/NumPy/Cython type to the
@@ -979,12 +982,9 @@ def _convert_to_cython_type(tp, default=object):
     if isinstance(tp, str):
         return repr(tp)
     # NumPy array or Cython memoryview
-    try:
-        tp = _construct_ndarray_type_info(tp)
-    except TypeError:
-        pass
-    if isinstance(tp, NdarrayTypeInfo):
-        return convert_array_type(tp)
+    tp_arr = _construct_ndarray_type_info(tp)
+    if tp_arr is not None:
+        return convert_array_type(tp_arr)
     # Python/NumPy/Cython
     tp_str = _cython_types.get(tp)
     if tp_str is not None:
