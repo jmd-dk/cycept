@@ -175,7 +175,6 @@ def jit(func=None, **options):
 
 # Dict-like class for storing function call objects on the wrapper
 class _CyceptStorage(dict):
-
     # When called, dispatch to all function call objects
     def __call__(self):
         if not self:
@@ -428,10 +427,25 @@ class _FunctionCall:
             for i, line in enumerate(lines):
                 lines[i] = line.removeprefix(indentation)
             source = '\n'.join(lines)
-        # Ensure standard indentation (4 spaces)
-        source = ast.unparse(ast.parse(source))
         # Convert lambda function to def function
         if self.func.__name__ == '<lambda>':
+            # Extract just the lambda expression
+            # (both inspect.getsource() and dill.source.getsource()
+            # returns the surrounding code as well in the case of unassigned
+            # lambda expressions).
+            class LambdaVisitor(ast.NodeVisitor):
+                def __init__(self, root):
+                    self.root = root
+                    self._lambda = None
+                def get_lambda(self):
+                    self._lambda = None
+                    self.visit(self.root)
+                    return self._lambda
+                def visit_Lambda(self, node):
+                    if self._lambda is None:
+                        self._lambda = node
+            source = ast.unparse(LambdaVisitor(ast.parse(source)).get_lambda())
+            # Transform to def function
             indentation = ' ' * 4
             source = re.subn(
                 r'.*(^|\W)lambda (.+?): ?',
@@ -439,6 +453,10 @@ class _FunctionCall:
                 source,
                 1,
             )[0]
+        else:
+            # Do AST round-trip, ensuring canonical code style
+            # (e.g. 4 space indentation).
+            source = ast.unparse(ast.parse(source))
         # Remove jit decorator and decorators above it
         lines = source.split('\n')
         for i, line in enumerate(lines):
@@ -463,18 +481,14 @@ class _FunctionCall:
     # The return value is the annotations as well as
     # the modified source without the annotations.
     def extract_annotations(self):
-
         class AnnotationExtractor(ast.NodeTransformer):
-
             def __init__(self, call):
                 self.call = call
                 self.annotations = {}
-
             def extract(self):
                 self.annotations.clear()
                 source = ast.unparse(self.visit(self.call.ast))
                 return self.annotations, source
-
             def add_annotation(self, name, tp):
                 if not isinstance(name, str):
                     name = ast.unparse(name)
@@ -490,20 +504,17 @@ class _FunctionCall:
                     ),
                     RuntimeWarning,
                 )
-
             def visit_arg(self, node):
                 if not node.annotation:
                     return node
                 self.add_annotation(node.arg, node.annotation)
                 return type(node)(**(vars(node) | {'annotation': None}))
-
             def visit_FunctionDef(self, node):
                 self.generic_visit(node)
                 if not node.returns:
                     return node
                 self.add_annotation('return', node.returns)
                 return type(node)(**(vars(node) | {'returns': None}))
-
             def visit_AnnAssign(self, node):
                 if node.simple:
                     self.add_annotation(node.target, node.annotation)
@@ -522,7 +533,6 @@ class _FunctionCall:
                 return ast.Assign(**(
                     vars(node) | {'targets': [node.target], 'value': node.value}
                 ))
-
         annotations, source = AnnotationExtractor(self).extract()
         return annotations, source
 
@@ -580,27 +590,21 @@ class _FunctionCall:
         for param in self.signature.parameters.values():
             if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
                 return False
-
         # Closures not allowed with ccall
         class ClosureVisitor(ast.NodeVisitor):
-
             def __init__(self, call):
                 self.call = call
                 self._contains_closure = False
-
             def contains_closure(self):
                 self._contains_closure = False
                 self.visit(self.call.ast)
                 return self._contains_closure
-
             def visit_FunctionDef(self, node):
                 self.generic_visit(node)
                 if node.name != self.call.func_name:
                     self._contains_closure = True
-
             def visit_Lambda(self, node):
                 self._contains_closure = True
-
         if ClosureVisitor(self).contains_closure():
             return False
         # No violations found
@@ -608,6 +612,8 @@ class _FunctionCall:
 
     # Method for handling Cythonization and C compilation
     def compile(self, optimizations, html, silent):
+        # Define context managers for temporarily hack into various
+        # objects during Cythonization and compilation.
         @contextlib.contextmanager
         def hack_os_environ():
             cflags_in_environ = ('CFLAGS' in os.environ)
@@ -618,7 +624,6 @@ class _FunctionCall:
                 os.environ['CFLAGS'] = cflags
             else:
                 os.environ.pop('CFLAGS')
-
         @contextlib.contextmanager
         def hack_sys_argv():
             module_path = get_module_path(dir_name)
@@ -634,13 +639,11 @@ class _FunctionCall:
             )
             yield
             sys.argv = sys_argv
-
         @contextlib.contextmanager
         def hack_sys_path():
             sys.path.append(dir_name)
             yield
             sys.path.remove(dir_name)
-
         @contextlib.contextmanager
         def hack_distutils_spawn_log(silent):
             if silent:
@@ -658,7 +661,6 @@ class _FunctionCall:
             distutils.spawn.log = StdoutPrinter()
             yield
             distutils.spawn.log = distutils_spawn_log
-
         # Cythonize and compile extension module within temporary directory,
         # with arguments to Cython and the C compiler provided through hacking
         # of sys.argv and os.environ. The compiled module is then imported
@@ -911,28 +913,13 @@ def _record_types(call, variables=None):
 
 # Function for obtaining the types of locals within a function
 def _record_locals(call, silent_print):
-    @contextlib.contextmanager
-    def hack_print(silent_print):
-        if not silent_print:
-            yield
-            return
-        print_in_module = ('print' in call.module_dict)
-        print_func = call.module_dict.get('print')
-        call.module_dict['print'] = lambda *args, **kwargs: None
-        yield
-        if print_in_module:
-            call.module_dict['print'] = print_func
-        else:
-            call.module_dict.pop('print')
-
+    # Create copy of function source with the function renamed
     class FunctionRenamer(ast.NodeTransformer):
-
         def __init__(self, name_old, name_new):
             self.name_old = name_old
             self.name_new = name_new
             self.visit_Name = self.make_visitor('id')
             self.visit_FunctionDef = self.make_visitor('name')
-
         def make_visitor(self, attr):
             def rename(node):
                 self.generic_visit(node)
@@ -940,8 +927,6 @@ def _record_locals(call, silent_print):
                     node = type(node)(**(vars(node) | {attr: self.name_new}))
                 return node
             return rename
-
-    # Create copy of function source with the function renamed
     func_name_tmp = f'_cycept_func_{call.hash}'
     source = ast.unparse(
         FunctionRenamer(call.func_name, func_name_tmp).visit(call.ast)
@@ -959,6 +944,19 @@ def _record_locals(call, silent_print):
     # with recording of the types added as a side effect.
     # Disable the print() function while doing this,
     # unless silent_print is False.
+    @contextlib.contextmanager
+    def hack_print(silent_print):
+        if not silent_print:
+            yield
+            return
+        print_in_module = ('print' in call.module_dict)
+        print_func = call.module_dict.get('print')
+        call.module_dict['print'] = lambda *args, **kwargs: None
+        yield
+        if print_in_module:
+            call.module_dict['print'] = print_func
+        else:
+            call.module_dict.pop('print')
     with hack_print(silent_print):
         # Define modified function within definition module
         exec(source, call.module_dict)
