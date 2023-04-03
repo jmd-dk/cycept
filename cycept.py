@@ -435,7 +435,7 @@ class _FunctionCall:
             indentation = ' ' * 4
             source = re.subn(
                 r'.*(^|\W)lambda (.+?): ?',
-                rf'def {func_name}(\g<2>):\n{indentation}return ',
+                rf'def {self.func_name}(\g<2>):\n{indentation}return ',
                 source,
                 1,
             )[0]
