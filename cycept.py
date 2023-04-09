@@ -50,10 +50,12 @@ def jit(func=None, **options):
                 be run twice on the first call to the function.
                 Default value is True.
 
+
             html: bool
                 Set to True to produce HTML annotations of the compiled code.
                 View the HTMl using func.__cycept__().
                 Default value is False.
+
 
             checks: bool
                 Set to False to disable the following checks within Cython:
@@ -69,6 +71,7 @@ def jit(func=None, **options):
                     @jit(directives={'boundscheck': False, 'initializedcheck', False})
 
                 Default value is True.
+
 
             clike: bool
                 Set to True to substitute Python behaviour for
@@ -90,6 +93,18 @@ def jit(func=None, **options):
 
                 Default value is False.
 
+
+            array_args: bool
+                Local NumPy arrays used within the function are always
+                converted to Cython memoryviews, allowing for fast indexing.
+                If such variables are used as arguments to other functions,
+                passing them as memoryviews instead of NumPy arrays may not
+                work. To be safe, all memoryview variables are thus converted
+                back to NumPy arrays before used as arguments. Set this option
+                to False to prevent the convertion back to NumPy arrays.
+                Default value is True.
+
+
             directives: None | dict
                 Allows for adding Cython directives to the transpiled
                 function, typically in order to achieve further speedup.
@@ -99,6 +114,7 @@ def jit(func=None, **options):
 
                 You can read about the different directives here:
                 https://cython.readthedocs.io/en/latest/src/userguide/source_files_and_compilation.html#compiler-directives
+
 
             optimizations: None | str | list |  dict | int | bool
                 Specifies which optimizations to use with the C compiler
@@ -140,6 +156,7 @@ def jit(func=None, **options):
                     @jit(optimizations=False)
 
                 replaces all of the default optimizations with -O0.
+
 
     Annotations
     -----------
@@ -200,6 +217,7 @@ def _transpile(
     html=False,
     checks=True,
     clike=False,
+    array_args=True,
     directives=None,
     optimizations=None,
 ):
@@ -216,6 +234,8 @@ def _transpile(
     # Record types of passed arguments and locals
     _record_types(call)
     _record_locals(call, silent_print)
+    # Make sure that NumPy arrays are treated as such when necessary
+    call.protect_arrays(array_args)
     # Convert Python function source into Cython module source
     directives = _get_directives(directives, checks, clike)
     call.to_cython(directives)
@@ -275,6 +295,8 @@ class _FunctionCall:
         self._globals = None
         # Record of inferred types of local variables
         self.locals_types = {}
+        # Additional source lines to be included in the Cython extension module
+        self.cython_module_lines = []
         # Compilation products
         self.compiled = None
 
@@ -510,7 +532,7 @@ class _FunctionCall:
                 self.add_annotation(node.arg, node.annotation)
                 return type(node)(**(vars(node) | {'annotation': None}))
             def visit_FunctionDef(self, node):
-                self.generic_visit(node)
+                node = self.generic_visit(node)
                 if not node.returns:
                     return node
                 self.add_annotation('return', node.returns)
@@ -536,6 +558,110 @@ class _FunctionCall:
         annotations, source = AnnotationExtractor(self).extract()
         return annotations, source
 
+    # Method for wrapping NumPy array variables in numpy.asarray()
+    # whenever operations are used that do not work with Cython memoryviews.
+    def protect_arrays(self, array_args):
+        # Find local NumPy arrays
+        names = {
+            name
+            for name, tp in self.locals_types.items()
+            if isinstance(tp, NdarrayTypeInfo)
+        }
+        names.discard('return')
+        if not names:
+            # No local arrays found
+            return
+        # Wrap local arrays
+        class ArrayWrapper(ast.NodeTransformer):
+            def __init__(self, call, names, array_args, wrapper_func):
+                self.call = call
+                self.names = names
+                self.array_args = array_args
+                self.wrapper_func = wrapper_func
+                self.shape_attrs = set()
+                self.wrapped_any = False
+            def wrap(self):
+                self.shape_attrs.clear()
+                self.wrapped_any = False
+                return self.visit(self.call.ast)
+            def wrap_node(self, node):
+                if not isinstance(node, ast.Name):
+                    return node
+                if node.id in self.names:
+                    node = ast.Name(**(vars(node) | {'id': f'{self.wrapper_func}({node.id})'}))
+                return node
+            def visit_UnaryOp(self, node):
+                node = self.generic_visit(node)
+                operand = self.wrap_node(node.operand)
+                if operand is not node.operand:
+                    self.wrapped_any = True
+                    node = ast.UnaryOp(**(vars(node) | {'operand': operand}))
+                return node
+            def visit_BinOp(self, node):
+                node = self.generic_visit(node)
+                left = self.wrap_node(node.left)
+                right = self.wrap_node(node.right)
+                if left is not node.left or right is not node.right:
+                    self.wrapped_any = True
+                    node = ast.BinOp(**(vars(node) | {'left': left, 'right': right}))
+                return node
+            def visit_Call(self, node):
+                node = self.generic_visit(node)
+                if not self.array_args:
+                    return node
+                args = [self.wrap_node(arg) for arg in node.args]
+                if any(arg_wrapped is not arg for arg, arg_wrapped in zip(args, node.args)):
+                    self.wrapped_any = True
+                    node = ast.Call(**(vars(node) | {'args': args}))
+                return node
+            def visit_Subscript(self, node):
+                value = node.value
+                if (
+                    isinstance(value, ast.Attribute)
+                    and isinstance(value.value, ast.Name)
+                    and value.value.id in self.names
+                    and value.attr == 'shape'
+                ):
+                    # Record usage of memoryview.shape[i]
+                    self.shape_attrs.add(value)
+                node = self.generic_visit(node)
+                return node
+            def visit_Attribute(self, node):
+                node = self.generic_visit(node)
+                if node not in self.shape_attrs:
+                    value = self.wrap_node(node.value)
+                    if value is not node.value:
+                        self.wrapped_any = True
+                        node = ast.Attribute(**(vars(node) | {'value': value}))
+                return node
+        wrapper_func = '_cycept_asarray_'
+        array_wrapper = ArrayWrapper(self, names, array_args, wrapper_func)
+        self._source = ast.unparse(array_wrapper.wrap())
+        self._ast = None  # invalidate AST (cannot use the above as expressions are used as names)
+        if not array_wrapper.wrapped_any:
+            return
+        # Add wrapper_func as local variable
+        class NodeAdder(ast.NodeTransformer):
+            def __init__(self, call, node_to_add):
+                self.call = call
+                self.node_to_add = node_to_add
+            def add_node(self):
+                return self.visit(self.call.ast)
+            def visit_FunctionDef(self, node):
+                if self.node_to_add is None:
+                    return node
+                node = ast.FunctionDef(**(vars(node) | {'body': [self.node_to_add] + node.body}))
+                self.node_to_add = None
+                return node
+        self._source = ast.unparse(NodeAdder(self, ast.parse(f'{wrapper_func} = _{wrapper_func}_')).add_node())
+        self._ast = None  # invalidate AST (above node addition is not strictly legal)
+        # We need to assign _{wrapper_func}_ to numpy.asarray() in the extension module
+        self.cython_module_lines += [
+            '\n# For converting memoryviews back to NumPy arrays',
+            f'from numpy import asarray as _{wrapper_func}_'
+        ]
+
+
     # Method for updating the source from being a Python function
     # to being a Cython extension module.
     def to_cython(self, directives):
@@ -544,6 +670,7 @@ class _FunctionCall:
             f'# Cycept version of {self} with type signature',
             f'# {self!r}',
         ]
+        preamble += self.cython_module_lines
         excludes = (self.func_name, 'cython')
         fake_globals = [
             f'{name} = object()'
@@ -922,7 +1049,7 @@ def _record_locals(call, silent_print):
             self.visit_FunctionDef = self.make_visitor('name')
         def make_visitor(self, attr):
             def rename(node):
-                self.generic_visit(node)
+                node = self.generic_visit(node)
                 if getattr(node, attr) == self.name_old:
                     node = type(node)(**(vars(node) | {attr: self.name_new}))
                 return node
@@ -931,6 +1058,7 @@ def _record_locals(call, silent_print):
     source = ast.unparse(
         FunctionRenamer(call.func_name, func_name_tmp).visit(call.ast)
     )
+    call._ast = None  # invalidate AST after renaming
     # Add type recording calls to source
     cycept_module_refname = '__cycept__'
     record_str = f'{cycept_module_refname}._record_types({call.hash}, locals())'
