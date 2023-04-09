@@ -229,7 +229,7 @@ def _transpile(
     optimizations=None,
 ):
     if not compile:
-        return func
+        return func, None
     # Fetch function call object, implementing dynamic evaluation
     # of various attributes.
     call = _fetch_function_call(func, args, kwargs)
