@@ -584,16 +584,19 @@ class _FunctionCall:
             return
         # Wrap local arrays
         class ArrayWrapper(ast.NodeTransformer):
-            def __init__(self, call, names, array_args, wrapper_func):
+            def __init__(self, call, names, array_args, wrapper_func, tmp_name):
                 self.call = call
                 self.names = names
                 self.array_args = array_args
                 self.wrapper_func = wrapper_func
+                self.tmp_name = tmp_name
                 self.shape_attrs = set()
                 self.wrapped_any = False
+                self.tmp_any = False
             def wrap(self):
                 self.shape_attrs.clear()
                 self.wrapped_any = False
+                self.tmp_any = False
                 return self.visit(self.call.ast)
             def wrap_node(self, node):
                 if not isinstance(node, ast.Name):
@@ -601,6 +604,7 @@ class _FunctionCall:
                 if node.id in self.names:
                     node = ast.Name(**(vars(node) | {'id': f'{self.wrapper_func}({node.id})'}))
                 return node
+            # Unary and binary operators should always act on NumPy arrays
             def visit_UnaryOp(self, node):
                 node = self.generic_visit(node)
                 operand = self.wrap_node(node.operand)
@@ -616,6 +620,21 @@ class _FunctionCall:
                     self.wrapped_any = True
                     node = ast.BinOp(**(vars(node) | {'left': left, 'right': right}))
                 return node
+            # Augmented assignment should always be carried out
+            # on NumPy arrays.
+            def visit_AugAssign(self, node):
+                node = self.generic_visit(node)
+                target = node.target
+                if not isinstance(target, ast.Name) or target.id not in self.names:
+                    return node
+                self.wrapped_any = True
+                self.tmp_any = True
+                expr = f'{self.tmp_name} = {self.wrapper_func}({target.id}); {self.tmp_name}'
+                target = ast.Name(**(vars(target) | {'id': expr}))
+                node.target = target
+                return node
+            # Use NumPy arrays as arguments within function calls
+            # if array_args is True.
             def visit_Call(self, node):
                 node = self.generic_visit(node)
                 if not self.array_args:
@@ -625,6 +644,11 @@ class _FunctionCall:
                     self.wrapped_any = True
                     node = ast.Call(**(vars(node) | {'args': args}))
                 return node
+            # NumPy arrays and Cython memory views generally share the same
+            # attributes. One exception is 'shape', which for memoryviews
+            # is meant to be used as memoryview.shape[i]. If the 'shape'
+            # attribute is to be used without immediately indexing into it,
+            # use a NumPy array instead of a memoryview.
             def visit_Subscript(self, node):
                 value = node.value
                 if (
@@ -646,11 +670,14 @@ class _FunctionCall:
                         node = ast.Attribute(**(vars(node) | {'value': value}))
                 return node
         wrapper_func = '_cycept_asarray_'
-        array_wrapper = ArrayWrapper(self, names, array_args, wrapper_func)
+        tmp_name = '_cycept_tmp_'
+        array_wrapper = ArrayWrapper(self, names, array_args, wrapper_func, tmp_name)
         self._source = ast.unparse(array_wrapper.wrap())
         self._ast = None  # invalidate AST (cannot use the above as expressions are used as names)
         if not array_wrapper.wrapped_any:
             return
+        if array_wrapper.tmp_any:
+            _record_types(self, {tmp_name: None})
         # Add wrapper_func as local variable
         class NodeAdder(ast.NodeTransformer):
             def __init__(self, call, node_to_add):
