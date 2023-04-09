@@ -35,6 +35,10 @@ def jit(func=None, **options):
     Arguments
     ---------
         options:
+            compile: bool
+                Set to False to disable just-in-time compilation.
+                Default is True.
+
             silent: bool
                 Set to False to display compilation commands.
                 Default value is True.
@@ -212,6 +216,7 @@ def _transpile(
     args,
     kwargs,
     *,
+    compile=True,
     silent=True,
     silent_print=True,
     html=False,
@@ -221,6 +226,8 @@ def _transpile(
     directives=None,
     optimizations=None,
 ):
+    if not compile:
+        return func
     # Fetch function call object, implementing dynamic evaluation
     # of various attributes.
     call = _fetch_function_call(func, args, kwargs)
