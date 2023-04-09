@@ -181,8 +181,11 @@ def jit(func=None, **options):
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        # Get and call transpiled function
-        result = _transpile(func, wrapper, args, kwargs, **options)(*args, **kwargs)
+        # Get compiled function or result
+        func_compiled, result = _transpile(func, wrapper, args, kwargs, **options)
+        if func_compiled is not None:
+            # Got compiled function. Call it to get result.
+            result = func_compiled(*args, **kwargs)
         # If a Cython memoryview is returned, convert to NumPy array
         if 'memoryview' in str(type(result)).lower():
             result = np.asarray(result)
@@ -233,13 +236,14 @@ def _transpile(
     # If the call has already been transpiled and cached,
     # return immediately.
     if call.compiled is not None:
-        return call.compiled.func
+        return call.compiled.func, None
     # The function call object was not found in cache
     if not silent:
         print(f'Jitting {call!r}')
-    # Record types of passed arguments and locals
+    # Record types of passed arguments and locals. As a side effect,
+    # the function is called and the return value obtained.
     _record_types(call)
-    _record_locals(call, silent_print)
+    result = _record_locals(call, silent_print)
     # Make sure that NumPy arrays are treated as such when necessary
     call.protect_arrays(array_args)
     # Convert Python function source into Cython module source
@@ -250,7 +254,8 @@ def _transpile(
     call.compile(optimizations, html, silent)
     # Store the function call object on the wrapper function
     wrapper.__cycept__[call.arguments_types] = call
-    return call.compiled.func
+    # Return the result only
+    return None, result
 
 
 # Function used to fetch _FunctionCall instance from the global
@@ -1107,6 +1112,8 @@ def _record_locals(call, silent_print):
     call.module_dict.pop(func_name_tmp)
     # Add return type to record
     _record_types(call, {'return': return_val})
+    # Return the return value from the function call
+    return return_val
 
 
 # Function returning pretty str representation of type
