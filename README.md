@@ -34,7 +34,7 @@ tic = time()
 result = func(a, b)
 toc = time()
 t_ref = toc - tic
-print(f'Pure python: {result} in {t_ref:.3e} s')
+print(f'Pure python: {result:<18} in {t_ref:.3e} s')
 
 # NumPy
 def func_numpy(a, b):
@@ -43,7 +43,7 @@ tic = time()
 result = func_numpy(a, b)
 toc = time()
 t = toc - tic
-print(f'NumPy:       {result} in {t:.3e} s ({int(t_ref/t)}x)')
+print(f'NumPy:       {result:<18} in {t:.3e} s ({int(t_ref/t)}x)')
 
 # Cycept
 import cycept
@@ -59,7 +59,7 @@ tic = time()
 result = func_cycept(a, b)
 toc = time()
 t = toc - tic
-print(f'Cycept:      {result} in {t:.3e} s ({int(t_ref/t)}x)')
+print(f'Cycept:      {result:<18} in {t:.3e} s ({int(t_ref/t)}x)')
 
 # Cython
 import cython
@@ -75,7 +75,7 @@ tic = time()
 result = func_cython(a, b)
 toc = time()
 t = toc - tic
-print(f'Cython:      {result} in {t:.3e} s ({int(t_ref/t)}x)')
+print(f'Cython:      {result:<18} in {t:.3e} s ({int(t_ref/t)}x)')
 
 # Numba
 import numba
@@ -91,16 +91,16 @@ tic = time()
 result = func_numba(a, b)
 toc = time()
 t = toc - tic
-print(f'Numba:       {result} in {t:.3e} s ({int(t_ref/t)}x)')
+print(f'Numba:       {result:<18} in {t:.3e} s ({int(t_ref/t)}x)')
 ```
 
 Running the above results in something similar to
 ```
-Pure python: 1000174.1891294761 in 2.305e+00 s
-NumPy:       1000174.1891295158 in 2.956e-02 s (77x)
-Cycept:      1000174.1891294761 in 6.517e-03 s (353x)
-Cython:      1000174.1891294761 in 7.060e-02 s (32x)
-Numba:       1000174.1891294761 in 7.414e-03 s (310x)
+Pure python: 1000265.9355757801 in 2.316e+00 s
+NumPy:       1000265.9355757139 in 2.967e-02 s (78x)
+Cycept:      1000265.9355757138 in 6.429e-03 s (360x)
+Cython:      1000265.9355757801 in 7.103e-02 s (32x)
+Numba:       1000265.9355757801 in 7.376e-03 s (314x)
 ```
 For scientific codebases in the wild, code of the NumPy style is the
 most widespread. However, writing out the loops while adding a JIT can
