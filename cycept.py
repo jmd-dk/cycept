@@ -62,19 +62,18 @@ def jit(func=None, **options):
 
 
             checks: bool
-                Set to False to disable the following checks within Cython:
+                Set to True to enable the following checks within Cython:
                     * boundscheck
                     * initializedcheck
-                Disabling these checks speeds up array code.
                 Note that using
 
-                    @jit(checks=False)
+                    @jit(checks=True)
 
                 is equivalent to
 
-                    @jit(directives={'boundscheck': False, 'initializedcheck', False})
+                    @jit(directives={'boundscheck': True, 'initializedcheck', True})
 
-                Default value is True.
+                Default value is False.
 
 
             clike: bool
@@ -220,7 +219,7 @@ def _transpile(
     silent=True,
     silent_print=True,
     html=False,
-    checks=True,
+    checks=False,
     clike=False,
     array_args=True,
     directives=None,
