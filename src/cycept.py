@@ -2,6 +2,7 @@ import ast
 import collections
 import contextlib
 import dataclasses
+import distutils
 import functools
 import inspect
 import itertools
@@ -809,21 +810,30 @@ class _FunctionCall:
             sys.path.remove(dir_name)
         @contextlib.contextmanager
         def hack_distutils_spawn_log(silent):
-            if silent:
-                # Operating silently is the default behaviour of distutils
-                yield
-                return
-            import distutils
-            class StdoutPrinter:
-                @staticmethod
-                def print(msg, *args, **kwargs):
-                    print(msg)
+            class Printer:
+                def __init__(self, silent):
+                    self.silent = silent
+                def print(self, msg, *args, **kwargs):
+                    if not self.silent:
+                        print(msg)
                 def __getattr__(self, attr):
                     return self.print
-            distutils_spawn_log = distutils.spawn.log
-            distutils.spawn.log = StdoutPrinter()
+            printer = Printer(silent)
+            module_names = ['spawn', 'dist']
+            loggers = {}
+            for module_name in module_names:
+                module = getattr(distutils, module_name)
+                if module_name is None:
+                    continue
+                logger = getattr(module, 'log')
+                if logger is None:
+                    continue
+                loggers[module_name] = logger
+                module.log = printer
             yield
-            distutils.spawn.log = distutils_spawn_log
+            for module_name, logger in loggers.items():
+                module = getattr(distutils, module_name)
+                module.log = logger
         # Cythonize and compile extension module within temporary directory,
         # with arguments to Cython and the C compiler provided through hacking
         # of sys.argv and os.environ. The compiled module is then imported
