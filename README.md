@@ -3,6 +3,13 @@ Effortless just-in-time compilation of Python functions,
 powered by [Cython](https://cython.org/).
 
 
+## Installation
+Cycept is available on [PyPi](https://pypi.org/project/cycept/):
+```bash
+python -m pip install cycept
+```
+
+
 ## Quick demo
 ```python
 """Comparison of Python function JITs
