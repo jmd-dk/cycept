@@ -76,8 +76,10 @@ def jit(func=None, **options):
                 Default is True.
 
 
-            silent: bool
-                Set to False to display compilation commands.
+            silent: bool | int
+                Set to False or 0 to display compilation messages.
+                Set to True or 1 to silence compilation messages.
+                Set to 2 to silence compilation messages and error messages.
                 Default value is True.
 
 
