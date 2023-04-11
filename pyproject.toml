@@ -1,0 +1,55 @@
+[build-system]
+requires = [
+    "setuptools>=61.0",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cycept"
+version = "0.0.1"
+authors = [
+    {name="Jeppe Dakin", email="jeppe_dakin@hotmail.com"},
+]
+description = "Effortless just-in-time compilation of Python functions, powered by Cython"
+readme = "README.md"
+requires-python = ">= 3.9"
+dependencies = [
+    "cython >= 3.0.0b1",
+    "numpy >= 1.20",
+    "dill >= 0.3",
+    "toml >= 0.10.0; python_version < '3.11'",
+]
+classifiers = [
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: C",
+    "Programming Language :: Cython",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Code Generators",
+    "Topic :: Software Development :: Compilers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.urls]
+"Download" = "https://pypi.python.org/pypi/cycept"
+"Changelog" = "https://github.com/jmd-dk/cycept/blob/main/CHANGELOG.md"
+"Bug Tracker" = "https://github.com/jmd-dk/cycept/issues"
+"Source code" = "https://github.com/jmd-dk/cycept"
+
+[project.optional-dependencies]
+test = [
+    "pytest ~= 7.3",
+]
+
+[tool.setuptools]
+packages = [
+    "cycept", "cycept.tests",
+]
+

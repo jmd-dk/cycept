@@ -3,6 +3,7 @@ from cycept import jit
 import cython
 import numpy as np
 
+
 def test_pass():
     @jit
     def f():
