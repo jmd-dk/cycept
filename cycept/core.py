@@ -189,6 +189,37 @@ def jit(func=None, **options):
                 replaces all of the default optimizations with -O0.
 
 
+            integral: type | str
+                By default, Python ints are replaced with cython.Py_ssize_t.
+                These are not fully equivalent: while cython.Py_ssize_t is
+                typically 64-bit, Python ints are unbounded. If you prefer
+                to e.g. use 32-bit ints, set this option to e.g. np.int32:
+
+                    @jit(integral=np.int32)
+
+                To use the native int of the current machine, you can specify
+                any of cython.int, np.intc, 'int'. To use the (slow) Python
+                ints, specify integral=object.
+
+
+            floating: type | str
+                By default, Python floats are replaced with cython.double.
+                These are fully identical 64-bit floating-point numbers.
+                If you prefer to e.g. use 64-bit floats, set this option
+                to e.g. np.float32:
+
+                    @jit(floating=np.float32)
+
+
+            floating_complex: type | str
+                By default, Python complex floats are replaced with
+                cython.complex. These should be fully identical 128-bit (2×64)
+                complex floating-point numbers. If you prefer to e.g. use
+                64-bit (2×32) complex floats, set this option to e.g. np.complex64:
+
+                    @jit(floating_complex=np.complex64)
+
+
     Annotations
     -----------
         Types of variables are automatically inferred at runtime.
@@ -255,6 +286,9 @@ def transpile(
     array_args=True,
     directives=None,
     optimizations=None,
+    integral=None,
+    floating=None,
+    floating_complex=None,
 ):
     if not compile:
         return func, None
@@ -268,6 +302,17 @@ def transpile(
     # The function call object was not found in cache
     if not silent:
         print(f'Jitting {call!r}')
+    # Populate global mappings of Cython types in accordance
+    # with user integral and floating specifications.
+    cython_types_user, cython_types_reverse_user = get_cython_types(
+        integral,
+        floating,
+        floating_complex,
+    )
+    cython_types.clear()
+    cython_types.update(cython_types_user)
+    cython_types_reverse.clear()
+    cython_types_reverse.update(cython_types_reverse_user)
     # Record types of passed arguments and locals. As a side effect,
     # the function is called and the return value obtained.
     record_types(call)
@@ -568,17 +613,23 @@ def convert_to_cython_type(tp, default=object):
     return str(tp)
 
 
-# Mapping of Python/NumPy types to str representations
-# of corresponding Cython types.
-cython_default_integral = 'cython.Py_ssize_t'  # typically 64-bit
-cython_types = collections.defaultdict(
-    lambda: 'object',
-    {
+# Function creating a mapping of Python/NumPy types
+# to str representations of corresponding Cython types.
+@functools.cache
+def get_cython_types(integral=None, floating=None, floating_complex=None):
+    if integral is None:
+        integral = cython_default_integral
+    if floating is None:
+        floating = cython_default_floating
+    if floating_complex is None:
+        floating_complex = cython_default_floating_complex
+    # Mapping of Cython types
+    cython_types = {
         # Python scalars
         bool: 'cython.bint',
-        int: cython_default_integral,
-        float: 'cython.double',
-        complex: 'cython.complex',
+        int: integral,
+        float: floating,
+        complex: floating_complex,
         # Python containers
         **{
             tp: tp.__name__
@@ -594,44 +645,58 @@ cython_types = collections.defaultdict(
                 tuple,
             ]
         },
-    },
-)
-# Add NumPy scalar types. Some NumPy types may not be available
-# at runtime and some Cython types may not be available
-# at compile time.
-for name, val in {
-    # NumPy Boolean
-    'bool_': 'cython.uchar', # uchar is preferable to bint as otherwise Cython throws "ValueError: Buffer dtype mismatch, expected 'bint' but got 'bool'"
-    # NumPy signed integral scalars
-    'int8': 'cython.schar',
-    'int16': 'cython.short',
-    'int32': 'cython.int',
-    'int64': 'cython.longlong',
-    # NumPy unsigned integral scalars
-    'uint8': 'cython.uchar',
-    'uint16': 'cython.ushort',
-    'uint32': 'cython.uint',
-    'uint64': 'cython.ulonglong',
-    # NumPy floating scalars
-    'float32': 'cython.float',
-    'float64': 'cython.double',
-    'longdouble': 'cython.longdouble',  # platform dependent
-    # NumPy complex floating scalars
-    'complex64': 'cython.floatcomplex',
-    'complex128': 'cython.doublecomplex',
-    'complex256': 'cython.longdoublecomplex',  # numpy.longdoublecomplex not defined
-}.items():
-    if (attr := getattr(np, name, None)) is not None:
-        cython_types[attr] = val
-# Also create reverse mapping
-cython_types_reverse = collections.defaultdict(
-    lambda: object,
-    {name: tp for tp, name in cython_types.items()},
-)
-# Now add the Cython types themselves
-cython_types |= {
-    getattr(cython, name.removeprefix('cython.')): name
-    for tp, name in cython_types.items()
-    if name.startswith('cython.')
-}
+    }
+    # Add NumPy scalar types. Some NumPy types may not be
+    # available at runtime and some Cython types may not be
+    # available at compile time.
+    for name, val in {
+        # NumPy Boolean
+        'bool_': 'cython.uchar', # uchar is preferable to bint as otherwise Cython throws "ValueError: Buffer dtype mismatch, expected 'bint' but got 'bool'"
+        # NumPy signed integral scalars
+        'int8': 'cython.schar',
+        'int16': 'cython.short',
+        'int32': 'cython.int',
+        'int64': 'cython.longlong',
+        # NumPy unsigned integral scalars
+        'uint8': 'cython.uchar',
+        'uint16': 'cython.ushort',
+        'uint32': 'cython.uint',
+        'uint64': 'cython.ulonglong',
+        # NumPy floating scalars
+        'float32': 'cython.float',
+        'float64': 'cython.double',
+        'longdouble': 'cython.longdouble',  # platform dependent
+        # NumPy complex floating scalars
+        'complex64': 'cython.floatcomplex',
+        'complex128': 'cython.doublecomplex',
+        'complex256': 'cython.longdoublecomplex',  # numpy.longdoublecomplex not defined
+    }.items():
+        if (attr := getattr(np, name, None)) is not None:
+            cython_types[attr] = val
+    # Also create reverse mapping
+    cython_types_reverse = {
+        name: tp for tp, name in cython_types.items()
+    }
+    # Now add the Cython types themselves
+    cython_types |= {
+        getattr(cython, name.removeprefix('cython.')): name
+        for tp, name in cython_types.items()
+        if isinstance(name, str) and name.startswith('cython.')
+    }
+    # Ensure that the provided integral and floating types
+    # are resolved to str representation of Cython types.
+    cython_types[int] = cython_types.get(integral, integral)
+    cython_types[float] = cython_types.get(floating, floating)
+    cython_types[complex] = cython_types.get(floating_complex, floating_complex)
+    cython_types_reverse[cython_types[int]] = int
+    cython_types_reverse[cython_types[float]] = float
+    cython_types_reverse[cython_types[complex]] = complex
+    return cython_types, cython_types_reverse
+# Global mappings for the Cython types
+cython_types = collections.defaultdict(lambda: 'object')
+cython_types_reverse = collections.defaultdict(lambda: object)
+# Default integral and floating type to use
+cython_default_integral = 'cython.Py_ssize_t'       # typically 64-bit
+cython_default_floating = 'cython.double'           # 64-bit
+cython_default_floating_complex = 'cython.complex'  # should always be 128-bit
 
