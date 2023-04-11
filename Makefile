@@ -15,13 +15,16 @@ print('Testing', os.path.dirname(cycept.__file__)); cycept.test()"
 test-dist:
 	@$(MAKE) --no-print-directory clean-dist clean-venv
 	$(python) -m venv venv
-	. venv/bin/activate && python -m pip install --upgrade pip
-	. venv/bin/activate && python -m pip install build
-	@. venv/bin/activate && python=$$(which python) $(MAKE) --no-print-directory dist
+	. ./venv/bin/activate && ./venv/bin/python -m pip install --upgrade pip
+	. ./venv/bin/activate && ./venv/bin/python -m pip install build
+	@. ./venv/bin/activate && python=./venv/bin/python $(MAKE) \
+--no-print-directory dist
 	@$(MAKE) --no-print-directory clean-tmp
 	mkdir -p tmp
-	cd tmp && . ../venv/bin/activate && python -m pip install $$(echo ../dist/*.whl)[test]
-	cd tmp && . ../venv/bin/activate && python=$$(which python) $(MAKE) --no-print-directory -f ../Makefile test
+	cd tmp && . ../venv/bin/activate && ../venv/bin/python -m pip install \
+$$(echo ../dist/*.whl)[test]
+	cd tmp && . ../venv/bin/activate && python=../venv/bin/python $(MAKE) \
+--no-print-directory -f ../Makefile test
 	@$(MAKE) --no-print-directory clean-tmp
 .PHONY: test-dist
 
