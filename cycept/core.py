@@ -600,6 +600,8 @@ cython_types = collections.defaultdict(
 # at runtime and some Cython types may not be available
 # at compile time.
 for name, val in {
+    # NumPy Boolean
+    'bool_': 'cython.bint',
     # NumPy signed integral scalars
     'int8': 'cython.schar',
     'int16': 'cython.short',
