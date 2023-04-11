@@ -601,7 +601,7 @@ cython_types = collections.defaultdict(
 # at compile time.
 for name, val in {
     # NumPy Boolean
-    'bool_': 'cython.bint',
+    'bool_': 'cython.uchar', # uchar is preferable to bint as otherwise Cython throws "ValueError: Buffer dtype mismatch, expected 'bint' but got 'bool'"
     # NumPy signed integral scalars
     'int8': 'cython.schar',
     'int16': 'cython.short',
