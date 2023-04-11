@@ -9,6 +9,16 @@ Cycept is available on [PyPi](https://pypi.org/project/cycept/):
 python -m pip install cycept
 ```
 
+Cycept requires Python 3.9 or later.
+
+To run Cycept a C compiler needs to be installed on the system.
+
+* For Debian-like **Linux** distros you may install [GCC](https://gcc.gnu.org/):
+  ```bash
+  sudo apt install build-essential
+  ```
+* For **Windows** you may install [MSVC](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
+
 
 ## Quick demo
 ```python
@@ -119,4 +129,15 @@ See the help info on `cycept.jit` for optional arguments:
 ```bash
 python -c 'import cycept; help(cycept.jit)'
 ```
+
+
+## What's up with the name?
+'Cycept' is an amalgamation of '[Cython](https://cython.org/)' and
+'[CO*N*CEPT](https://github.com/jmd-dk/concept)', the latter of which is a
+cosmological simulation code that makes heavy use of code transformation,
+both custom and through Cython. As the author of both projects, Cycept is my
+attempt to extract some of the code transformation ideas buried within
+CO*N*CEPT, making them available within an easy-to-use library.
+Though no code is shared between the projects, in many respects Cycept
+can be considered a spiritual descendant of CO*N*CEPT.
 

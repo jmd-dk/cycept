@@ -1,20 +1,16 @@
 import ast
 import collections
 import contextlib
-import distutils
 import inspect
 import itertools
-import os
 import pathlib
 import re
+import subprocess
 import sys
 import tempfile
-import traceback
 import typing
 import warnings
 import webbrowser
-
-import Cython.Build.Cythonize
 
 
 # Class for storing and dynamically handling
@@ -533,93 +529,46 @@ class FunctionCall:
 
     # Method for handling Cythonization and C compilation
     def compile(self, optimizations, html, silent):
-        # Define context managers for temporarily hack into various
-        # objects during Cythonization and compilation.
-        @contextlib.contextmanager
-        def hack_os_environ():
-            cflags_in_environ = ('CFLAGS' in os.environ)
-            cflags = os.environ.get('CFLAGS', '')
-            os.environ['CFLAGS'] = ' '.join(optimizations)
-            yield
-            if cflags_in_environ:
-                os.environ['CFLAGS'] = cflags
-            else:
-                os.environ.pop('CFLAGS')
-        @contextlib.contextmanager
-        def hack_sys_argv():
-            module_path = get_module_path(dir_name)
-            sys_argv = sys.argv
-            sys.argv = list(
-                itertools.chain(
-                    [''],
-                    ['-i', '-3'],
-                    ['-q'] * silent,
-                    ['-a'] * html,
-                    [str(module_path.with_suffix('.pyx'))],
-                )
-            )
-            yield
-            sys.argv = sys_argv
+        # Cythonize and compile extension module within temporary directory.
+        # The compiled module is then imported (through hacking of sys.path)
+        # before it is removed from disk.
         @contextlib.contextmanager
         def hack_sys_path():
             sys.path.append(dir_name)
             yield
             sys.path.remove(dir_name)
-        @contextlib.contextmanager
-        def hack_distutils_spawn_log(silent):
-            class Printer:
-                def __init__(self, silent):
-                    self.silent = silent
-                def print(self, msg, *args, **kwargs):
-                    if not self.silent:
-                        print(msg)
-                def __getattr__(self, attr):
-                    return self.print
-            printer = Printer(silent)
-            module_names = ['spawn', 'dist']
-            loggers = {}
-            for module_name in module_names:
-                module = getattr(distutils, module_name)
-                if module_name is None:
-                    continue
-                logger = getattr(module, 'log')
-                if logger is None:
-                    continue
-                loggers[module_name] = logger
-                module.log = printer
-            yield
-            for module_name, logger in loggers.items():
-                module = getattr(distutils, module_name)
-                module.log = logger
-        # Cythonize and compile extension module within temporary directory,
-        # with arguments to Cython and the C compiler provided through hacking
-        # of sys.argv and os.environ. The compiled module is then imported
-        # (through hacking of sys.path) before it is removed from disk.
-        # If not compiling silently, we further hack distutils_spawn_log to
-        # print output to stdout.
         module_name = f'_cycept_module_{self.hash}'
-        get_module_path = lambda dir_name: pathlib.Path(dir_name) / module_name
         namespace = {}
         html_annotation = None
         with (
-            tempfile.TemporaryDirectory() as dir_name,
-            hack_os_environ(),
-            hack_sys_argv(),
+            tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as dir_name,
             hack_sys_path(),
-            hack_distutils_spawn_log(silent),
         ):
-            module_path = get_module_path(dir_name)
             # Write Cython source to file
+            module_path = pathlib.Path(dir_name) / module_name
             module_path.with_suffix('.pyx').write_text(self.source, 'utf-8')
-            # Call Cython.Build.Cythonize.main(), which is equivalent
-            # to calling the cythonize script.
-            ok = True
-            try:
-                Cython.Build.Cythonize.main()
-            except BaseException:
-                ok = False
-                traceback.print_exc()
-            if not ok:
+            # Call Cython. We do so within a subprocess
+            # in order to capture stdout.
+            cmd = [
+                sys.executable,
+                '-c',
+                '; '.join([
+                    'import cycept.compile',
+                    'cycept.compile.compile({})'
+                    .format(', '.join([
+                        f'{str(module_path)!r}',
+                        f'{optimizations!r}',
+                        f'{html!r}',
+                        f'{silent!r}',
+                    ]))
+                ]),
+            ]
+            cproc = subprocess.run(cmd, capture_output=True)
+            if cproc.stderr and silent < 2:
+                print(cproc.stderr.decode(), file=sys.stderr)
+            if cproc.stdout and silent < 1:
+                print(cproc.stdout.decode(), file=sys.stdout)
+            if cproc.returncode != 0:
                 if sys.flags.interactive:
                     # Do not remove the compilation files immediately when
                     # running interactively, allowing the user to inspect them.
