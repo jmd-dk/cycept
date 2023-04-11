@@ -21,9 +21,8 @@ def get_version():
     version = '?.?.?'
     # Get version from pyproject.toml
     def get_tomllib():
-        toml_packages = ['tomllib2', 'tomli', 'toml']
+        toml_packages = ['tomllib', 'tomli', 'toml']
         for name in toml_packages:
-            print(name)
             try:
                 return importlib.import_module(name)
             except ModuleNotFoundError:
@@ -38,8 +37,7 @@ def get_version():
         )
     path = pathlib.Path(__file__).resolve().parent
     while True:
-        path_pyproject = path / 'pyproject.toml'
-        if path_pyproject.is_file():
+        if (path_pyproject := path / 'pyproject.toml').is_file():
             if (tomllib := get_tomllib()) is not None:
                 info = tomllib.loads(path_pyproject.read_text('utf-8'))
                 if info['project']['name'] == 'cycept':
