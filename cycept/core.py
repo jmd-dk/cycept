@@ -577,24 +577,6 @@ cython_types = collections.defaultdict(
         int: cython_default_integral,
         float: 'cython.double',
         complex: 'cython.complex',
-        # NumPy signed integral scalars
-        np.int8: 'cython.schar',
-        np.int16: 'cython.short',
-        np.int32: 'cython.int',
-        np.int64: 'cython.longlong',
-        # NumPy unsigned integral scalars
-        np.uint8: 'cython.uchar',
-        np.uint16: 'cython.ushort',
-        np.uint32: 'cython.uint',
-        np.uint64: 'cython.ulonglong',
-        # NumPy floating scalars
-        np.float32: 'cython.float',
-        np.float64: 'cython.double',
-        np.longdouble: 'cython.longdouble',  # platform dependent
-        # NumPy complex floating scalars
-        np.complex64: 'cython.floatcomplex',  # Cython type may not be available at compile time
-        np.complex128: 'cython.doublecomplex',
-        np.complex256: 'cython.longdoublecomplex',  # Cython type may not be available at compile time; np.longdoublecomplex not defined
         # Python containers
         **{
             tp: tp.__name__
@@ -612,6 +594,31 @@ cython_types = collections.defaultdict(
         },
     },
 )
+# Add NumPy scalar types. Some NumPy types may not be available
+# at runtime and some Cython types may not be available
+# at compile time.
+for name, val in {
+    # NumPy signed integral scalars
+    'int8': 'cython.schar',
+    'int16': 'cython.short',
+    'int32': 'cython.int',
+    'int64': 'cython.longlong',
+    # NumPy unsigned integral scalars
+    'uint8': 'cython.uchar',
+    'uint16': 'cython.ushort',
+    'uint32': 'cython.uint',
+    'uint64': 'cython.ulonglong',
+    # NumPy floating scalars
+    'float32': 'cython.float',
+    'float64': 'cython.double',
+    'longdouble': 'cython.longdouble',  # platform dependent
+    # NumPy complex floating scalars
+    'complex64': 'cython.floatcomplex',
+    'complex128': 'cython.doublecomplex',
+    'complex256': 'cython.longdoublecomplex',  # numpy.longdoublecomplex not defined
+}.items():
+    if (attr := getattr(np, name, None)) is not None:
+        cython_types[attr] = val
 # Also create reverse mapping
 cython_types_reverse = collections.defaultdict(
     lambda: object,
