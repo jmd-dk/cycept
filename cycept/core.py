@@ -3,6 +3,8 @@ import collections
 import contextlib
 import dataclasses
 import functools
+import importlib
+import importlib.metadata
 import pathlib
 import re
 import sys
@@ -14,45 +16,44 @@ import numpy as np
 from .call import FunctionCall
 
 
-# Read current version from pyproject.toml
+# Get current version
 def get_version():
     version = '?.?.?'
-    # Get version from meta data on installed package
-    import importlib
-    try:
-        return importlib.metadata.version('cycept')
-    except importlib.metadata.PackageNotFoundError:
-        pass
-    # Look for pyproject.toml
+    # Get version from pyproject.toml
     def get_tomllib():
-        tomllib = None
-        try:
-            import tomllib
-        except ModuleNotFoundError:
+        toml_packages = ['tomllib2', 'tomli', 'toml']
+        for name in toml_packages:
+            print(name)
             try:
-                import toml as tomllib
+                return importlib.import_module(name)
             except ModuleNotFoundError:
-                warnings.warn(
-                    (
-                        f'For using Cycept with Python < 3.11 please install '
-                        f'the toml Python package:\n'
-                        f'    {sys.executable} -m pip install toml\n'
-                    ),
-                    RuntimeWarning,
-                )
-        return tomllib
+                pass
+        warnings.warn(
+            (
+                f'For using Cycept with Python < 3.11 please install '
+                f'the tomli Python package:\n'
+                f'    {sys.executable} -m pip install tomli\n'
+            ),
+            RuntimeWarning,
+        )
     path = pathlib.Path(__file__).resolve().parent
     while True:
         path_pyproject = path / 'pyproject.toml'
         if path_pyproject.is_file():
-            tomllib = get_tomllib()
-            if tomllib is not None:
+            if (tomllib := get_tomllib()) is not None:
                 info = tomllib.loads(path_pyproject.read_text('utf-8'))
-                version = info['project']['version']
+                if info['project']['name'] == 'cycept':
+                    return info['project']['version']
+                break
             break
         if path.parent == path:
             break
         path = path.parent
+    # Get version from meta data on installed package
+    try:
+        return importlib.metadata.version('cycept')
+    except ModuleNotFoundError:
+        pass
     return version
 __version__ = get_version()
 

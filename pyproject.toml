@@ -17,7 +17,7 @@ dependencies = [
     "cython >= 3.0.0b1",
     "numpy >= 1.20",
     "dill >= 0.3",
-    "toml >= 0.10.0; python_version < '3.11'",
+    "tomli >= 1.1.0; python_version < '3.11'",
 ]
 classifiers = [
     "Intended Audience :: Developers",
