@@ -2,7 +2,7 @@
 
 <br/>
 
-### 🚀 [0.1.0](https://github.com/jmd-dk/cycept/releases/tag/v0.1.0) — 2023-??-??
+### 🚀 [0.0.1](https://github.com/jmd-dk/cycept/releases/tag/v0.0.1) — 2023-04-11
 
 #### ✨ Features
 - `jit` decorator powered by [Cython](https://cython.org/).
