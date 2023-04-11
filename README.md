@@ -13,11 +13,8 @@ Cycept requires Python 3.9 or later.
 
 To run Cycept a C compiler needs to be installed on the system.
 
-* For Debian-like **Linux** distros you may install [GCC](https://gcc.gnu.org/):
-  ```bash
-  sudo apt install build-essential
-  ```
-* For **Windows** you may install [MSVC](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
+* On **Linux** you may install [GCC](https://gcc.gnu.org/) (Debian-like distros: `sudo apt install build-essential`).
+* On **Windows** you may install [MSVC](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
 
 
 ## Quick demo
@@ -129,6 +126,15 @@ See the help info on `cycept.jit` for optional arguments:
 ```bash
 python -c 'import cycept; help(cycept.jit)'
 ```
+
+
+## Test suite
+The code contains a unit test suite which may be run as
+```
+python -c "import cycept; cycept.test()"
+```
+This requires [pytest](https://docs.pytest.org/) to be installed
+(`python -m pip install pytest`).
 
 
 ## What's up with the name?

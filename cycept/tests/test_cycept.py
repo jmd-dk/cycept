@@ -1,4 +1,4 @@
-from cycept import jit
+from cycept import jit, NdarrayTypeInfo
 
 import cython
 import numpy as np
@@ -53,8 +53,12 @@ def test_type_cython():
         b = [a]
         return 2*b.pop()
     f(True)
-    types = next(iter(f.__cycept__.values())).types
-    assert types == {'a': 'cython.bint', 'b': 'list', 'return': 'cython.Py_ssize_t'}
+    call = next(iter(f.__cycept__.values()))
+    assert call.types == {
+        'a': 'cython.bint',
+        'b': 'list',
+        'return': 'cython.Py_ssize_t',
+    }
 
 def test_type_array():
     @jit
@@ -62,11 +66,27 @@ def test_type_array():
         b = a**0.5
         return b + 1j
     f(np.arange(3))
-    call = next(iter(f.__cycept__.values()))
+    key = next(iter(f.__cycept__))
+    assert isinstance(key[0], NdarrayTypeInfo)
+    call = f.__cycept__[key]
     assert call.locals_types['a'].dtype is np.int64
     assert call.locals_types['b'].dtype is np.float64
     assert call.locals_types['return'].dtype is np.complex128
-    assert call.types == {'a': 'cython.longlong[::1]', 'b': 'cython.double[::1]', 'return': 'cython.doublecomplex[::1]'}
+    assert call.types == {
+        'a': 'cython.longlong[::1]',
+        'b': 'cython.double[::1]',
+        'return': 'cython.doublecomplex[::1]',
+    }
+
+def test_array_mutability():
+    @jit
+    def f(a):
+        a[0] += 1
+    a = np.zeros(3, dtype=int)
+    n = 3
+    for _ in range(n):
+        f(a)
+    assert a[0] == n
 
 def test_type_annotation():
     @jit
@@ -74,21 +94,27 @@ def test_type_annotation():
         b : object = [a]
         return 2*b.pop()
     f(True)
-    types = next(iter(f.__cycept__.values())).types
-    assert types == {'a': 'cython.Py_ssize_t', 'b': 'object', 'return': 'cython.double'}
+    call = next(iter(f.__cycept__.values()))
+    assert call.types == {
+        'a': 'cython.Py_ssize_t',
+        'b': 'object',
+        'return': 'cython.double',
+    }
 
 def test_manual():
     def f(a):
         return 2*a
     g = jit(f)
     assert f(1) == g(1)
-    assert next(iter(g.__cycept__.values())).types['return'] == 'cython.Py_ssize_t'
+    call = next(iter(g.__cycept__.values()))
+    assert call.types['return'] == 'cython.Py_ssize_t'
 
 def test_lambda():
     def test(f):
         g = jit(f)
         assert f(1) == g(1)
-        assert next(iter(g.__cycept__.values())).types['return'] == 'cython.Py_ssize_t'
+        call = next(iter(g.__cycept__.values()))
+        assert call.types['return'] == 'cython.Py_ssize_t'
     f = lambda a: 2*a
     test(f)
     test(lambda a: 2*a)
@@ -150,7 +176,8 @@ def test_arg_starargs():
     def f(a, *args):
         return a + sum(args)
     f(1)
-    assert next(iter(f.__cycept__.values())).locals_types['args'] is tuple
+    call = next(iter(f.__cycept__.values()))
+    assert call.locals_types['args'] is tuple
     assert f(1) == 1
     assert f(a=0) == 0
     assert f(1, 2, 3, 4) == 10
@@ -158,7 +185,8 @@ def test_arg_starargs():
     def g(*args, a=1):
         return a + sum(args)
     g()
-    assert next(iter(g.__cycept__.values())).locals_types['args'] is tuple
+    call = next(iter(g.__cycept__.values()))
+    assert call.locals_types['args'] is tuple
     assert g() == 1
     assert g(2, 3, 4) == 10
     assert g(2, 3, 4, a=0) == 9
@@ -168,7 +196,8 @@ def test_arg_starstarkwargs():
     def f(a, **kwargs):
         return a + kwargs.get('b', 0) + kwargs.get('c', 0)
     f(1)
-    assert next(iter(f.__cycept__.values())).locals_types['kwargs'] is dict
+    call = next(iter(f.__cycept__.values()))
+    assert call.locals_types['kwargs'] is dict
     assert f(1) == 1
     assert f(a=0) == 0
     assert f(1, b=2, c=3) == 6
@@ -176,7 +205,8 @@ def test_arg_starstarkwargs():
     def g(a=1, **kwargs):
         return a + kwargs.get('b', 0) + kwargs.get('c', 0)
     g()
-    assert next(iter(g.__cycept__.values())).locals_types['kwargs'] is dict
+    call = next(iter(g.__cycept__.values()))
+    assert call.locals_types['kwargs'] is dict
     assert g() == 1
     assert g(b=2, c=3) == 6
     assert g(b=2, c=3, a=0) == 5
