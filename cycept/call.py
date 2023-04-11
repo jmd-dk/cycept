@@ -351,15 +351,31 @@ class FunctionCall:
                 self.tmp_any = False
                 return self.visit(self.call.ast)
             def wrap_node(self, node, kind=0):
+                n_nested_subscripts = 0
                 while isinstance(node, ast.Subscript):
+                    n_nested_subscripts += 1
+                    node_subscript = node
                     node = node.value
-                if isinstance(node, ast.Name) and node.id in self.names:
-                    self.wrapped_any = True
-                    if kind == 0:
-                        node.id = f'{self.wrapper_func}({node.id})'
-                    elif kind == 1:
-                        self.tmp_any = True
-                        node.id = f'{self.tmp_name} = {self.wrapper_func}({node.id}); {self.tmp_name}'
+                if not isinstance(node, ast.Name) or node.id not in self.names:
+                    return
+                if n_nested_subscripts == 1:
+                    # Memoryview/array indexing arr[x].
+                    # If we can prove that x is a scalar
+                    # we use the memoryview as is.
+                    if isinstance(node_subscript.slice, ast.Name):
+                        tp = self.call.types[node_subscript.slice.id]
+                        if tp.startswith('cython.') and '[' not in tp:
+                            return node
+                    elif isinstance(node_subscript.slice, ast.Constant):
+                        if isinstance(node_subscript.slice.value, int):
+                            return node
+                # Wrap node
+                self.wrapped_any = True
+                if kind == 0:
+                    node.id = f'{self.wrapper_func}({node.id})'
+                elif kind == 1:
+                    self.tmp_any = True
+                    node.id = f'{self.tmp_name} = {self.wrapper_func}({node.id}); {self.tmp_name}'
             def visit_UnaryOp(self, node):
                 node = self.generic_visit(node)
                 self.wrap_node(node.operand)
@@ -369,23 +385,14 @@ class FunctionCall:
                 self.wrap_node(node.left)
                 self.wrap_node(node.right)
                 return node
+            def visit_Compare(self, node):
+                node = self.generic_visit(node)
+                self.wrap_node(node.left)
+                for comparator in node.comparators:
+                    self.wrap_node(comparator)
+                return node
             def visit_AugAssign(self, node):
                 node = self.generic_visit(node)
-                if (
-                    isinstance(node.target, ast.Subscript)
-                    and isinstance(node.target.value, ast.Name)
-                    and node.target.value.id in self.names
-                ):
-                    # Augmented assignment arr[x] += ...
-                    # If we can show that x is a scalar
-                    # we use the memoryview as is.
-                    if isinstance(node.target.slice, ast.Name):
-                        tp = self.call.types[node.target.slice.id]
-                        if tp.startswith('cython.') and '[' not in tp:
-                            return node
-                    elif isinstance(node.target.slice, ast.Constant):
-                        if isinstance(node.target.slice.value, int):
-                            return node
                 self.wrap_node(node.target, kind=1)
                 return node
             # Use NumPy arrays as arguments within function calls

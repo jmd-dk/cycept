@@ -368,3 +368,12 @@ def test_array_element_augmentation():
     ]
     assert sourcelengths[0] < sourcelengths[1]
 
+def test_array_comparison():
+    @jit
+    def f(a):
+        b = a < 2
+        return a >= b[0]
+    a = np.arange(3, dtype=int)
+    for _ in range(2):
+        assert f(a).sum() == 2
+
