@@ -1,7 +1,11 @@
-from cycept import jit, NdarrayTypeInfo
+import re
+import sys
 
 import cython
 import numpy as np
+import pytest
+
+from cycept import jit, NdarrayTypeInfo
 
 
 def test_pass():
@@ -65,7 +69,7 @@ def test_type_array():
     def f(a):
         b = a**0.5
         return b + 1j
-    f(np.arange(3))
+    f(np.arange(3, dtype=np.int64))
     key = next(iter(f.__cycept__))
     assert isinstance(key[0], NdarrayTypeInfo)
     call = f.__cycept__[key]
@@ -235,9 +239,9 @@ def test_option_silent(capfd):
         if silent:
             assert out == ''
         else:
-            assert 'Jitting f()' in out  # Cycept
-            assert 'Compiling' in out    # Cython
-            assert '-O3' in out          # C compiler
+            assert 'Jitting f()' in out                    # Cycept
+            assert 'Compiling' in out                      # Cython
+            assert re.search(r'cycept_module_\d+\.o', out)  # C compiler
 
 def test_option_html():
     for html in (False, True):
@@ -303,6 +307,10 @@ def test_option_directives():
             result = f(-1, 2)
         assert result == (0 if cdivision else -1)
 
+@pytest.mark.skipif(
+    'win' in sys.platform.lower(),
+    reason='CFLAGS optimizations does not work with MSVC, which is probably the compiler used on Windows',
+)
 def test_option_optimizations(capfd):
     for level, optimizations in enumerate([False, 1, '-O2', {'-O3': True}]):
         @jit(optimizations=optimizations, silent=False)
