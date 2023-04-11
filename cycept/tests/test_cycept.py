@@ -82,16 +82,6 @@ def test_type_array():
         'return': 'cython.doublecomplex[::1]',
     }
 
-def test_array_mutability():
-    @jit
-    def f(a):
-        a[0] += 1
-    a = np.zeros(3, dtype=int)
-    n = 3
-    for _ in range(n):
-        f(a)
-    assert a[0] == n
-
 def test_type_annotation():
     @jit
     def f(a: int) -> float:
@@ -309,7 +299,10 @@ def test_option_directives():
 
 @pytest.mark.skipif(
     'win' in sys.platform.lower(),
-    reason='CFLAGS optimizations does not work with MSVC, which is probably the compiler used on Windows',
+    reason=(
+        'CFLAGS optimizations does not work with MSVC, '
+        'which is probably the compiler used on Windows'
+    ),
 )
 def test_option_optimizations(capfd):
     for level, optimizations in enumerate([False, 1, '-O2', {'-O3': True}]):
@@ -319,4 +312,59 @@ def test_option_optimizations(capfd):
         f()
         out, err = capfd.readouterr()
         assert f'-O{level}' in out
+
+def test_array_mutability():
+    @jit
+    def f(a):
+        a[0] += 1
+    a = np.zeros(3, dtype=int)
+    n = 3
+    for _ in range(n):
+        f(a)
+    assert a[0] == n
+
+def test_array_operations():
+    @jit
+    def f(a):
+        b = a + 1
+        return b
+    a = np.zeros(3, dtype=int)
+    for _ in range(2):
+        b = f(a)
+        assert b.sum() == 3
+
+def test_array_augmentation():
+    @jit
+    def f(a):
+        a += 1
+    a = np.zeros(3, dtype=int)
+    for _ in range(2):
+        f(a)
+    assert a.sum() == 6
+
+def test_array_slice_augmentation():
+    @jit
+    def f(a):
+        a[1:] += 1
+    a = np.zeros(3, dtype=int)
+    for _ in range(2):
+        f(a)
+    assert a.sum() == 4
+
+def test_array_element_augmentation():
+    @jit
+    def f(a, b):
+        a[b] += 1
+    a = np.zeros(3, dtype=int)
+    b = np.zeros(3, dtype=bool)
+    b[2] = True
+    for _ in range(2):
+        f(a, 1)  # should use memoryview for a
+        f(a, b)  # should use array for a
+    assert (a == [0, 2, 2]).all()
+    sourcelengths = [
+        len(call.compiled.source)
+        for call in f.__cycept__.values()
+    ]
+    assert sourcelengths[0] < sourcelengths[1]
 

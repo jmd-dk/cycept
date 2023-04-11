@@ -350,40 +350,43 @@ class FunctionCall:
                 self.wrapped_any = False
                 self.tmp_any = False
                 return self.visit(self.call.ast)
-            def wrap_node(self, node):
-                if not isinstance(node, ast.Name):
-                    return node
-                if node.id in self.names:
-                    node = ast.Name(**(vars(node) | {'id': f'{self.wrapper_func}({node.id})'}))
-                return node
-            # Unary and binary operators should always act on NumPy arrays
+            def wrap_node(self, node, kind=0):
+                while isinstance(node, ast.Subscript):
+                    node = node.value
+                if isinstance(node, ast.Name) and node.id in self.names:
+                    self.wrapped_any = True
+                    if kind == 0:
+                        node.id = f'{self.wrapper_func}({node.id})'
+                    elif kind == 1:
+                        self.tmp_any = True
+                        node.id = f'{self.tmp_name} = {self.wrapper_func}({node.id}); {self.tmp_name}'
             def visit_UnaryOp(self, node):
                 node = self.generic_visit(node)
-                operand = self.wrap_node(node.operand)
-                if operand is not node.operand:
-                    self.wrapped_any = True
-                    node = ast.UnaryOp(**(vars(node) | {'operand': operand}))
+                self.wrap_node(node.operand)
                 return node
             def visit_BinOp(self, node):
                 node = self.generic_visit(node)
-                left = self.wrap_node(node.left)
-                right = self.wrap_node(node.right)
-                if left is not node.left or right is not node.right:
-                    self.wrapped_any = True
-                    node = ast.BinOp(**(vars(node) | {'left': left, 'right': right}))
+                self.wrap_node(node.left)
+                self.wrap_node(node.right)
                 return node
-            # Augmented assignment should always be carried out
-            # on NumPy arrays.
             def visit_AugAssign(self, node):
                 node = self.generic_visit(node)
-                target = node.target
-                if not isinstance(target, ast.Name) or target.id not in self.names:
-                    return node
-                self.wrapped_any = True
-                self.tmp_any = True
-                expr = f'{self.tmp_name} = {self.wrapper_func}({target.id}); {self.tmp_name}'
-                target = ast.Name(**(vars(target) | {'id': expr}))
-                node.target = target
+                if (
+                    isinstance(node.target, ast.Subscript)
+                    and isinstance(node.target.value, ast.Name)
+                    and node.target.value.id in self.names
+                ):
+                    # Augmented assignment arr[x] += ...
+                    # If we can show that x is a scalar
+                    # we use the memoryview as is.
+                    if isinstance(node.target.slice, ast.Name):
+                        tp = self.call.types[node.target.slice.id]
+                        if tp.startswith('cython.') and '[' not in tp:
+                            return node
+                    elif isinstance(node.target.slice, ast.Constant):
+                        if isinstance(node.target.slice.value, int):
+                            return node
+                self.wrap_node(node.target, kind=1)
                 return node
             # Use NumPy arrays as arguments within function calls
             # if array_args is True.
@@ -391,10 +394,8 @@ class FunctionCall:
                 node = self.generic_visit(node)
                 if not self.array_args:
                     return node
-                args = [self.wrap_node(arg) for arg in node.args]
-                if any(arg_wrapped is not arg for arg, arg_wrapped in zip(args, node.args)):
-                    self.wrapped_any = True
-                    node = ast.Call(**(vars(node) | {'args': args}))
+                for arg in node.args:
+                    self.wrap_node(arg)
                 return node
             # NumPy arrays and Cython memory views generally share the same
             # attributes. One exception is 'shape', which for memoryviews
@@ -416,10 +417,7 @@ class FunctionCall:
             def visit_Attribute(self, node):
                 node = self.generic_visit(node)
                 if node not in self.shape_attrs:
-                    value = self.wrap_node(node.value)
-                    if value is not node.value:
-                        self.wrapped_any = True
-                        node = ast.Attribute(**(vars(node) | {'value': value}))
+                    self.wrap_node(node.value)
                 return node
         wrapper_func = '_cycept_asarray_'
         tmp_name = '_cycept_tmp_'
