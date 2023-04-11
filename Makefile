@@ -41,7 +41,7 @@ clean-venv:
 	$(RM) -r venv
 
 clean: clean-dist clean-tmp clean-egg-info clean-venv
-	$(RM) -r */__pycache__ */*/__pycache__ .pytest_cache
+	$(RM) -r __pycache__ */__pycache__ */*/__pycache__ .pytest_cache
 
 .PHONY:            \
     clean-dist     \
