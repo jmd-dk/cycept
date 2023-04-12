@@ -8,6 +8,7 @@ import importlib.metadata
 import pathlib
 import re
 import sys
+import time
 import warnings
 
 import cython
@@ -298,6 +299,7 @@ def transpile(
     if call.compiled is not None:
         return call.compiled.func, None
     # The function call object was not found in cache
+    tic = time.perf_counter()
     if not silent:
         print(f'Jitting {call!r}')
     # Populate global mappings of Cython types in accordance
@@ -322,9 +324,16 @@ def transpile(
     call.to_cython(directives)
     # Cythonize and compile
     optimizations = get_optimizations(optimizations)
-    call.compile(optimizations, html, silent)
+    time_compile = call.compile(optimizations, html, silent)
     # Store the function call object on the wrapper function
     wrapper.__cycept__[call.arguments_types] = call
+    # End and store time measurements
+    toc = time.perf_counter()
+    time_total = toc - tic
+    call.time = call.Time(time_compile, time_total)
+    if not silent:
+        print(f'Compilation time:   {call.time.compile:#.4g} s')
+        print(f'Total jitting time: {call.time.total:#.4g} s')
     # Return the result only
     return None, result
 

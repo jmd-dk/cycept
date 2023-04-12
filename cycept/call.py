@@ -8,6 +8,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import typing
 import warnings
 import webbrowser
@@ -22,6 +23,10 @@ class FunctionCall:
         module: object
         source: str
         html: str
+
+    class Time(typing.NamedTuple):
+        compile: float
+        total: float
 
     def __init__(self, func, args, kwargs):
         # Function and call arguments
@@ -48,6 +53,8 @@ class FunctionCall:
         self.cython_module_lines = []
         # Compilation products
         self.compiled = None
+        # Time measurements
+        self.time = None
 
     # Name of function (with lambda functions renamed)
     @property
@@ -584,7 +591,9 @@ class FunctionCall:
                     'stderr': subprocess.STDOUT,
                     'text': True,
                 }
+            tic = time.perf_counter()
             cproc = subprocess.run(cmd, **run_kwargs)
+            toc = time.perf_counter()
             if cproc.returncode != 0:
                 if sys.flags.interactive:
                     # Do not remove the compilation files immediately when
@@ -618,6 +627,8 @@ class FunctionCall:
             source_c,
             html_annotation,
         )
+        # Return compilation time (in seconds)
+        return toc - tic
 
     # Method for viewing the annotated HTML
     def __call__(self, dir_name=None):
