@@ -222,15 +222,16 @@ def test_option_compile():
 def test_option_silent(capfd):
     for silent in (False, True):
         @jit(silent=silent)
-        def f():
+        def f(a):
             pass
-        f()
+        f(np.linspace(0, 1, 3, dtype=np.float64))
         out, err = capfd.readouterr()
         if silent:
             assert out == ''
         else:
-            assert 'Jitting f()' in out                    # Cycept
-            assert 'Compiling' in out                      # Cython
+            assert 'Jitting f(a: double[::1])' in out       # Cycept
+            assert 'Compilation time' in out                # Cycept
+            assert 'Compiling' in out                       # Cython
             assert re.search(r'cycept_module_\d+\.o', out)  # C compiler
 
 def test_option_html():
