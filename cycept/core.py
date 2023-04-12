@@ -300,8 +300,6 @@ def transpile(
         return call.compiled.func, None
     # The function call object was not found in cache
     tic = time.perf_counter()
-    if not silent:
-        print(f'Jitting {call!r}')
     # Populate global mappings of Cython types in accordance
     # with user integral and floating specifications.
     cython_types_user, cython_types_reverse_user = get_cython_types(
@@ -313,6 +311,9 @@ def transpile(
     cython_types.update(cython_types_user)
     cython_types_reverse.clear()
     cython_types_reverse.update(cython_types_reverse_user)
+    # Print jitting message if not running silently
+    if not silent:
+        print(f'Jitting {call!r}')
     # Record types of passed arguments and locals. As a side effect,
     # the function is called and the return value obtained.
     record_types(call)
