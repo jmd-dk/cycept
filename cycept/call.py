@@ -351,6 +351,15 @@ class FunctionCall:
                 self.tmp_any = False
                 return self.visit(self.call.ast)
             def wrap_node(self, node, kind=0):
+                def is_scalar(node):
+                    if isinstance(node, ast.Name):
+                        tp = self.call.types[node.id]
+                        if tp.startswith('cython.') and '[' not in tp:
+                            return True
+                    elif isinstance(node, ast.Constant):
+                        if isinstance(node.value, int):
+                            return True
+                    return False
                 n_nested_subscripts = 0
                 while isinstance(node, ast.Subscript):
                     n_nested_subscripts += 1
@@ -362,13 +371,11 @@ class FunctionCall:
                     # Memoryview/array indexing arr[x].
                     # If we can prove that x is a scalar
                     # we use the memoryview as is.
-                    if isinstance(node_subscript.slice, ast.Name):
-                        tp = self.call.types[node_subscript.slice.id]
-                        if tp.startswith('cython.') and '[' not in tp:
+                    if isinstance(node_subscript.slice, ast.Tuple):
+                        if all(is_scalar(el) for el in node_subscript.slice.elts):
                             return node
-                    elif isinstance(node_subscript.slice, ast.Constant):
-                        if isinstance(node_subscript.slice.value, int):
-                            return node
+                    elif is_scalar(node_subscript.slice):
+                        return node
                 # Wrap node
                 self.wrapped_any = True
                 if kind == 0:
