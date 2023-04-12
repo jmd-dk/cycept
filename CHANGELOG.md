@@ -3,13 +3,13 @@
 <br/>
 
 
-### 🚀 [0.0.2](https://github.com/jmd-dk/cycept/releases/tag/v0.0.2) — 2021-04-12
+### 🚀 [0.0.2](https://github.com/jmd-dk/cycept/releases/tag/v0.0.2) — 2023-04-12
 
 #### ✨ Features
 - More array/memoryview operations allowed:
   - Comparisons (arrays).
   - Scalar indexing (memoryviews).
-- New `@jit` options `integral`, `floating` and floating_complex` for
+- New `@jit` options `integral`, `floating` and `floating_complex` for
   overwriting the default Cython types used for the Python types `int`,
   `float` and `complex`.
 - Compilation times are now measured and stored as `FunctionCall.time`.
