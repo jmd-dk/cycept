@@ -2,7 +2,7 @@ python ?= python3
 
 all: test-dist
 
-dist:
+dist: cycept cycept/tests pyproject.toml README.md CHANGELOG.md LICENSE
 	@$(MAKE) --no-print-directory clean-dist
 	$(python) -m build
 	@$(MAKE) --no-print-directory clean-egg-info
