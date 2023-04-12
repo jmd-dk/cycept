@@ -10,7 +10,7 @@ import Cython.Build.Cythonize
 
 
 # Method for handling Cythonization and C compilation
-def compile(module_path, optimizations, html, silent):
+def compile(module_path, optimizations, html):
     module_path = pathlib.Path(module_path)
     # Define context managers for temporarily hack into various
     # objects during Cythonization and compilation.
@@ -31,7 +31,6 @@ def compile(module_path, optimizations, html, silent):
             itertools.chain(
                 [''],
                 ['-i', '-3'],
-                ['-q'] * silent,
                 ['-a'] * html,
                 [str(module_path.with_suffix('.pyx'))],
             )
@@ -39,23 +38,20 @@ def compile(module_path, optimizations, html, silent):
         yield
         sys.argv = sys_argv
     @contextlib.contextmanager
-    def hack_distutils_log(silent):
+    def hack_distutils_log():
         class Printer:
-            def __init__(self, silent):
-                self.silent = silent
             def print(self, msg, *args, **kwargs):
-                if not self.silent:
-                    print(msg)
+                print(msg)
             def __getattr__(self, attr):
                 return self.print
-        printer = Printer(silent)
+        printer = Printer()
         module_names = ['spawn', 'dist']
         loggers = {}
         for module_name in module_names:
-            module = getattr(distutils, module_name)
+            module = getattr(distutils, module_name, None)
             if module_name is None:
                 continue
-            logger = getattr(module, 'log')
+            logger = getattr(module, 'log', None)
             if logger is None:
                 continue
             loggers[module_name] = logger
@@ -66,12 +62,12 @@ def compile(module_path, optimizations, html, silent):
             module.log = logger
     # Cythonize and compile extension module with arguments to Cython
     # and the C compiler provided through hacking of os.environ and sys.argv.
-    # We also hack into the logging of distutils, either silencing it
-    # or making it print out the logged information.
+    # We also hack into the logging of distutils, making it print out
+    # the logged information.
     with (
         hack_os_environ(),
         hack_sys_argv(),
-        hack_distutils_log(silent),
+        hack_distutils_log(),
     ):
         Cython.Build.Cythonize.main()
 

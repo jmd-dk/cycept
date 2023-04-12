@@ -298,7 +298,7 @@ def test_option_directives():
         assert result == (0 if cdivision else -1)
 
 @pytest.mark.skipif(
-    'win' in sys.platform.lower(),
+    re.search(r'(?<!dar)win', sys.platform.lower()),
     reason=(
         'CFLAGS optimizations does not work with MSVC, '
         'which is probably the compiler used on Windows'

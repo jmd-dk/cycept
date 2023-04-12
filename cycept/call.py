@@ -545,15 +545,18 @@ class FunctionCall:
         module_name = f'_cycept_module_{self.hash}'
         namespace = {}
         html_annotation = None
+        tempfile_kwargs = {}
+        if sys.version_info[:2] >= (3, 10):
+            tempfile_kwargs |= {'ignore_cleanup_errors': True}
         with (
-            tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as dir_name,
+            tempfile.TemporaryDirectory(**tempfile_kwargs) as dir_name,
             hack_sys_path(),
         ):
             # Write Cython source to file
             module_path = pathlib.Path(dir_name) / module_name
             module_path.with_suffix('.pyx').write_text(self.source, 'utf-8')
-            # Call Cython. We do so within a subprocess
-            # in order to capture stdout.
+            # Call Cython. We do so within a subprocess in order
+            # to capture stdout an stderr when running silently.
             cmd = [
                 sys.executable,
                 '-c',
@@ -564,21 +567,26 @@ class FunctionCall:
                         f'{str(module_path)!r}',
                         f'{optimizations!r}',
                         f'{html!r}',
-                        f'{silent!r}',
                     ]))
                 ]),
             ]
-            cproc = subprocess.run(cmd, capture_output=True)
-            if cproc.stderr and silent < 2:
-                print(cproc.stderr.decode(), file=sys.stderr)
-            if cproc.stdout and silent < 1:
-                print(cproc.stdout.decode(), file=sys.stdout)
+            run_kwargs = {}
+            if silent:
+                run_kwargs |= {
+                    'stdout': subprocess.PIPE,
+                    'stderr': subprocess.STDOUT,
+                    'text': True,
+                }
+            cproc = subprocess.run(cmd, **run_kwargs)
             if cproc.returncode != 0:
                 if sys.flags.interactive:
                     # Do not remove the compilation files immediately when
                     # running interactively, allowing the user to inspect them.
                     input(f'Press Enter to clean up temporary build directory {dir_name} ')
-                raise OSError('Cythonization failed')
+                msg = ['Cythonization failed.']
+                if silent:
+                    msg += ['Subprocess output:', cproc.stdout]
+                raise OSError('\n'.join(msg))
             # Import function from compiled module into temporary namespace
             exec(f'import {module_name}', namespace)
             # Read in C source and annotated HTML
