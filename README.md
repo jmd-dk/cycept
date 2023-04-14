@@ -13,9 +13,12 @@ Cycept requires Python 3.9 or later.
 
 To run Cycept a C compiler needs to be installed on the system.
 
-* On **Linux** you may install [GCC](https://gcc.gnu.org/) (Debian-like distros: `sudo apt install build-essential`).
-* On **macOS** you may install [Xcode](https://developer.apple.com/xcode/).
-* On **Windows** you may install [MSVC](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
+* On **Linux** you may install [GCC](https://gcc.gnu.org/)
+  (Debian-like distros: `sudo apt install build-essential`).
+* On **macOS** you may install [Clang](https://clang.llvm.org/)
+  (available through [Xcode](https://developer.apple.com/xcode/)).
+* On **Windows** you may install
+  [MSVC](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
 
 
 ## Quick demo
