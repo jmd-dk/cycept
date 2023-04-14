@@ -1,4 +1,3 @@
-/build
 /dist
 /venv
 *.egg-info
