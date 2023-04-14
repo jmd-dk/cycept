@@ -82,6 +82,12 @@ def jit(func=None, **options):
                 Default value is True.
 
 
+            c_lang: str
+                Set this to 'c' or 'c++' to select the language to which the
+                Python function will be transpiled.
+                Default value is 'c'.
+
+
             html: bool
                 Set to True to produce HTML annotations of the compiled code.
                 View the HTMl using func.__cycept__().
@@ -279,6 +285,7 @@ def transpile(
     *,
     compile=True,
     silent=True,
+    c_lang=None,
     html=False,
     checks=False,
     clike=False,
@@ -325,7 +332,7 @@ def transpile(
     call.to_cython(directives)
     # Cythonize and compile
     optimizations = get_optimizations(optimizations)
-    time_compile = call.compile(optimizations, html, silent)
+    time_compile = call.compile(optimizations, c_lang, html, silent)
     # Store the function call object on the wrapper function
     wrapper.__cycept__[call.arguments_types] = call
     # End and store time measurements
@@ -409,6 +416,7 @@ def get_optimizations(optimizations):
         # Use defaults with amendments
         optimizations_ammended = get_defaults()
         for optimization, enable in optimizations.items():
+            optimization = str(optimization).strip()
             if enable and optimization not in optimizations_ammended:
                 optimizations_ammended.append(optimization)
             elif not enable and optimization in optimizations_ammended:
@@ -417,8 +425,10 @@ def get_optimizations(optimizations):
     else:
         # Use supplied optimizations as is
         optimizations = list(optimizations)
+    optimizations = list(map(str.strip, optimizations))
     return optimizations
 optimizations_default = [
+    '-DCYTHON_WITHOUT_ASSERTIONS',
     '-DNDEBUG',
     '-O3',
     '-funroll-loops',

@@ -1,42 +1,32 @@
 import contextlib
-import distutils
-import itertools
 import os
 import pathlib
+import re
 import sys
 
+import Cython.Build
+import distutils.core
+import distutils.command.build_ext
 
-import Cython.Build.Cythonize
-
+# Implement contextlib.chdir if missing
+if sys.version_info < (3, 11):
+    @contextlib.contextmanager
+    def _chdir(path):
+        old_cwd = os.getcwd()
+        os.chdir(path)
+        yield
+        os.chdir(old_cwd)
+    contextlib.chdir = _chdir
 
 # Method for handling Cythonization and C compilation
-def compile(module_path, optimizations, html):
+def compile(module_path, optimizations, c_lang, html):
     module_path = pathlib.Path(module_path)
-    # Define context managers for temporarily hack into various
-    # objects during Cythonization and compilation.
-    @contextlib.contextmanager
-    def hack_os_environ():
-        cflags_in_environ = ('CFLAGS' in os.environ)
-        cflags = os.environ.get('CFLAGS', '')
-        os.environ['CFLAGS'] = ' '.join(optimizations)
-        yield
-        if cflags_in_environ:
-            os.environ['CFLAGS'] = cflags
-        else:
-            os.environ.pop('CFLAGS')
-    @contextlib.contextmanager
-    def hack_sys_argv():
-        sys_argv = sys.argv
-        sys.argv = list(
-            itertools.chain(
-                [''],
-                ['-i', '-3'],
-                ['-a'] * html,
-                [str(module_path.with_suffix('.pyx'))],
-            )
-        )
-        yield
-        sys.argv = sys_argv
+    # Extract define macros from passed optimizations
+    macros = []
+    for optimization in optimizations:
+        if match := re.match(r'-D(\S+)', optimization):
+            macros.append(match.group(1))
+    # Context manager forcing distutils to print out its logged messages
     @contextlib.contextmanager
     def hack_distutils_log():
         class Printer:
@@ -60,14 +50,33 @@ def compile(module_path, optimizations, html):
         for module_name, logger in loggers.items():
             module = getattr(distutils, module_name)
             module.log = logger
-    # Cythonize and compile extension module with arguments to Cython
-    # and the C compiler provided through hacking of os.environ and sys.argv.
-    # We also hack into the logging of distutils, making it print out
-    # the logged information.
+    # Cythonize and compile extension module
     with (
-        hack_os_environ(),
-        hack_sys_argv(),
+        contextlib.chdir(module_path.parent),
         hack_distutils_log(),
     ):
-        Cython.Build.Cythonize.main()
+        print(f'Changed working directory to {os.getcwd()}')
+        extension_kwargs = {}
+        if c_lang:
+            extension_kwargs |= {'language': c_lang}
+        extension = distutils.core.Extension(
+            name=module_path.stem,
+            sources=[module_path.with_suffix('.pyx').name],
+            define_macros=[(macro, None) for macro in macros],
+            extra_compile_args=optimizations,
+            extra_link_args=optimizations,
+            **extension_kwargs,
+        )
+        dist = distutils.core.Distribution()
+        dist.parse_config_files(dist.find_config_files())
+        build_extension = distutils.command.build_ext.build_ext(dist)
+        build_extension.finalize_options()
+        build_extension.build_temp = ''
+        build_extension.build_lib  = ''
+        build_extension.extensions = Cython.Build.cythonize(
+            [extension],
+            compiler_directives={'language_level': 3},
+            annotate=html,
+        )
+        build_extension.run()
 

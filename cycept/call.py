@@ -22,6 +22,7 @@ class FunctionCall:
         func: object
         module: object
         source: str
+        source_ext: str
         html: str
 
     class Time(typing.NamedTuple):
@@ -547,7 +548,7 @@ class FunctionCall:
         return True
 
     # Method for handling Cythonization and C compilation
-    def compile(self, optimizations, html, silent):
+    def compile(self, optimizations, c_lang, html, silent):
         # Cythonize and compile extension module within temporary directory.
         # The compiled module is then imported (through hacking of sys.path)
         # before it is removed from disk.
@@ -558,9 +559,10 @@ class FunctionCall:
             sys.path.remove(dir_name)
         module_name = f'_cycept_module_{self.hash}'
         namespace = {}
+        source_c = None
         html_annotation = None
         tempfile_kwargs = {}
-        if sys.version_info[:2] >= (3, 10):
+        if sys.version_info >= (3, 10):
             tempfile_kwargs |= {'ignore_cleanup_errors': True}
         with (
             tempfile.TemporaryDirectory(**tempfile_kwargs) as dir_name,
@@ -580,6 +582,7 @@ class FunctionCall:
                     .format(', '.join([
                         f'{str(module_path)!r}',
                         f'{optimizations!r}',
+                        f'{c_lang!r}',
                         f'{html!r}',
                     ]))
                 ]),
@@ -606,9 +609,13 @@ class FunctionCall:
             # Import function from compiled module into temporary namespace
             exec(f'import {module_name}', namespace)
             # Read in C source and annotated HTML
-            source_c = module_path.with_suffix('.c').read_text('utf-8')
-            path_html = module_path.with_suffix('.html')
-            if path_html.is_file():
+            for ext in ['c', 'cc', 'cpp', 'cxx']:
+                if (path_c := module_path.with_suffix(f'.{ext}')).is_file():
+                    source_c = path_c.read_text('utf-8')
+                    break
+            else:
+                ext = None
+            if (path_html := module_path.with_suffix('.html')).is_file():
                 html_annotation = path_html.read_text('utf-8')
         # Extract compiled function
         module_compiled = namespace[module_name]
@@ -625,6 +632,7 @@ class FunctionCall:
             func_compiled,
             module_compiled,
             source_c,
+            ext,
             html_annotation,
         )
         # Return compilation time (in seconds)
@@ -638,7 +646,11 @@ class FunctionCall:
         if dir_name is None:
             dir_name = tempfile.mkdtemp()  # not cleaned up
         module_path = pathlib.Path(dir_name) / self.compiled.module.__name__
-        module_path.with_suffix('.c').write_text(self.compiled.source, 'utf-8')
+        if self.compiled.source is not None and self.compiled.source_ext is not None:
+            module_path.with_suffix(f'.{self.compiled.source_ext}').write_text(
+                self.compiled.source,
+                'utf-8',
+             )
         path_html = module_path.with_suffix('.html')
         path_html.write_text(self.compiled.html, 'utf-8')
         webbrowser.open_new_tab(str(path_html.as_uri()))
