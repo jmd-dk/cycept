@@ -111,7 +111,7 @@ class OptimizationOptions:
         },
         'native': {
             'unix': ['-march=native'],
-            'msvc': ['/fp:fast'],
+            'msvc': [],
         },
     }
 
