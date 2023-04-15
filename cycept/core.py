@@ -141,7 +141,7 @@ def jit(func=None, **options):
                 Default value is True.
 
 
-            directives: None | dict
+            directives: dict[str, bool]
                 Allows for adding Cython directives to the transpiled
                 function, typically in order to achieve further speedup.
                 To e.g. disable boundschecking of indexing operations:
@@ -152,46 +152,18 @@ def jit(func=None, **options):
                 https://cython.readthedocs.io/en/latest/src/userguide/source_files_and_compilation.html#compiler-directives
 
 
-            optimizations: None | str | list |  dict | int | bool
-                Specifies which optimizations to use with the C compiler
-                (given as CFLAGS).
-                If not provided or None, default (aggressive) optimizations
-                are used. One or more optimizations can be given as a str
-                or list of strs, overwriting the defaults, e.g.
+            optimizations: dict[str, bool]
+                Specifies which compiler optimizations to enable/disable.
+                Cycept defines the following optimizations, here written with
+                their GCC equivalent to their right:
+                    * base: -O3 -funroll-loops
+                    * fastmath: -ffast-math
+                    * native: -march=native
+                To disable e.g. fastmath, use
 
-                    @jit(optimizations='-O2')
+                    @jit(optimizations={'fastmath': False})
 
-                If not supplied, default optimizations include
-                    * -O3
-                    * -ffast-math
-                    * -march=native
-                To remove e.g. -ffast-math while keeping the remaining
-                default optimizations, use
-
-                    @jit(optimizations={'-ffast-math': False})
-
-                If the value within the dict is True rather than False,
-                the given optimization is added on top of the default
-                optimizations rather than being removed.
-
-                Specifying the optimizations argument as an int 'n'
-                is equivalent to passing just the overall optimization level
-                (which disables all defaults):
-
-                    @jit(optimizations=n)  # equivalent to the below
-                    @jit(optimizations=f'-O{n}')
-
-                If the optimizations argument is given as a bool,
-                all optimizations are enabled/disabled. That is,
-
-                    @jit(optimizations=True)
-
-                is equivalent to not passing the optimizations argument
-                at all, making use of the defaults. Using
-
-                    @jit(optimizations=False)
-
-                replaces all of the default optimizations with -O0.
+                The default value for all optimizations is True.
 
 
             integral: type | str
@@ -331,7 +303,6 @@ def transpile(
     directives = get_directives(directives, checks, clike)
     call.to_cython(directives)
     # Cythonize and compile
-    optimizations = get_optimizations(optimizations)
     time_compile = call.compile(optimizations, c_lang, html, silent)
     # Store the function call object on the wrapper function
     wrapper.__cycept__[call.arguments_types] = call
@@ -394,47 +365,6 @@ def get_directives(directives, checks, clike):
                 RuntimeWarning,
             )
     return directives
-
-
-# Function for setting up compiler optimizations (CFLAGS)
-def get_optimizations(optimizations):
-    get_defaults = lambda: optimizations_default.copy()
-    if optimizations is None:
-        # No optimizations provided. Use defaults.
-        optimizations = get_defaults()
-    elif isinstance(optimizations, (bool, int)):
-        # Enable or disable all optimizations
-        if optimizations is True:
-            optimizations = get_defaults()
-        else:
-            level = abs(int(optimizations))
-            optimizations = [f'-O{level}']
-    elif isinstance(optimizations, str):
-        # Transform str of optimizations to list
-        optimizations = optimizations.split(' ')
-    elif isinstance(optimizations, dict):
-        # Use defaults with amendments
-        optimizations_ammended = get_defaults()
-        for optimization, enable in optimizations.items():
-            optimization = str(optimization).strip()
-            if enable and optimization not in optimizations_ammended:
-                optimizations_ammended.append(optimization)
-            elif not enable and optimization in optimizations_ammended:
-                optimizations_ammended.remove(optimization)
-        optimizations = optimizations_ammended
-    else:
-        # Use supplied optimizations as is
-        optimizations = list(optimizations)
-    optimizations = list(map(str.strip, optimizations))
-    return optimizations
-optimizations_default = [
-    '-DCYTHON_WITHOUT_ASSERTIONS',
-    '-DNDEBUG',
-    '-O3',
-    '-funroll-loops',
-    '-ffast-math',
-    '-march=native',
-]
 
 
 # Function for extracting the Python/NumPy type off of a value
