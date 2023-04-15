@@ -18,7 +18,9 @@ To run Cycept a C compiler needs to be installed on the system.
 * On **macOS** you may install [Clang](https://clang.llvm.org/)
   (available through [Xcode](https://developer.apple.com/xcode/)).
 * On **Windows** you may install
-  [MSVC](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
+  [MSVC](https://en.wikipedia.org/wiki/Microsoft_Visual_C%2B%2B)
+  (available through
+  [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
 
 
 ## Quick demo
