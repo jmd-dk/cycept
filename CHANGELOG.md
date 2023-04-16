@@ -3,6 +3,30 @@
 <br/>
 
 
+### 🚀 [0.0.3](https://github.com/jmd-dk/cycept/releases/tag/v0.0.3) — 2023-04-16
+
+#### ✨ Features
+- It is now possible to transpile to C++ rather than C
+  (the `c_lang` option of `@jit`).
+
+#### ⚡ Optimizations
+- Improved system for compiler optimizations.
+- Now generates optimal code for chained array indexing.
+
+#### 🔧 Portability
+- Now uses `setuptools` and `Cython.Distutils` instead of `distutils`.
+- Improved packaging.
+
+#### 🤖 Tests
+- Added performance test suite.
+- Added more unit tests.
+
+[Commits since 0.0.2](https://github.com/jmd-dk/cycept/compare/v0.0.2...v0.0.3)
+
+---
+<br/><br/>
+
+
 ### 🚀 [0.0.2](https://github.com/jmd-dk/cycept/releases/tag/v0.0.2) — 2023-04-12
 
 #### ✨ Features
