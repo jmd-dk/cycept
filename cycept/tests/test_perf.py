@@ -86,18 +86,26 @@ def get_jits():
 # Function for running all performance tests without using pytest.
 # (timings will be shown this way).
 def bench(show_func=False):
-    global test_asserts, print_source
-    # Disable test asserts when not testing with pytest
-    test_asserts = False
-    # If show_func, enable printing of the tested source code
-    if show_func:
-        print_source = True
+    @contextlib.contextmanager
+    def set_globals():
+        global test_asserts, print_source
+        test_asserts_backup = test_asserts
+        print_source_backup = print_source
+        # Disable test asserts when not testing with pytest
+        test_asserts = False
+        # If show_func, enable printing of the tested source code
+        if show_func:
+            print_source = True
+        yield
+        test_asserts = test_asserts_backup
+        print_source = print_source_backup
     # Discover and run test functions within this module
-    for var, val in globals().copy().items():
-        if not var.startswith('test_') and not var.endswith('_test'):
-            continue
-        if callable(val):
-            val()
+    with set_globals():
+        for var, val in globals().copy().items():
+            if not var.startswith('test_') and not var.endswith('_test'):
+                continue
+            if callable(val):
+                val()
 test_asserts = True
 print_source = False
 
@@ -156,7 +164,7 @@ def perf(func, *args, **kwargs):
                 return f'{speedup:.1f}'
             return f'{speedup:.2f}'
         maxlen = max(map(len, names.values()))
-        s0 = f'{{:<{maxlen + 1}}}'.format(names[name].capitalize() + ':')
+        s0 = f'{{:<{maxlen + 1}}}'.format(names[name] + ':')
         t = getattr(timings, name)
         if t == np.inf:
             print(f'{s0} Fails to compile')
@@ -179,20 +187,26 @@ def perf(func, *args, **kwargs):
         print(f'{s0} {calls} loop{s1}, best of {repeats}: {t_pretty:<7} per loop{s2}')
 
     def print_heading():
-        caller_name = inspect.currentframe().f_back.f_back.f_code.co_name
-        print(f'\n# {caller_name}')
-        if not print_source:
-            return
-        def get_source(func):
-            source = inspect.getsource(func)
-            lines = source.split('\n')
-            indentation = ' ' * (len(lines[0]) - len(lines[0].lstrip()))
+        def dedent(text, indentation='auto'):
+            lines = text.split('\n')
+            if indentation == 'auto':
+                indentation = ' ' * (len(lines[0]) - len(lines[0].lstrip()))
             lines = [
                 l for line in lines
                 if (l := line.removeprefix(indentation).rstrip())
             ]
-            source = '\n'.join(lines)
+            text = '\n'.join(lines)
+            return text
+        def get_source(func):
+            source = dedent(inspect.getsource(func))
             return source
+        caller_name = inspect.currentframe().f_back.f_back.f_code.co_name
+        hashes = '#' * (1 + print_source)
+        print(f'\n{hashes} {caller_name}')
+        if not print_source:
+            return
+        doc = dedent(globals()[caller_name].__doc__, ' ' * 4)
+        print('\n'.join(f'# {line}' for line in doc.split('\n')))
         source = get_source(func)
         print(source)
         if func_numpy is not None:
@@ -293,7 +307,7 @@ def stringify_time(t):
 # Test functions below
 
 def test_prime():
-    """Computes the n'th print number.
+    """Computes the n'th prime number.
     This tests the performance of integer operations.
     """
     def f(n):
@@ -406,7 +420,7 @@ def test_life():
 
 
 def test_array():
-    """Computes the value sum((a - b)**2), with a and b being arrays.
+    """Computes the value sum((a - b)**2) with a and b being arrays.
     This tests the performance of array indexing.
     """
     def f(a, b):
@@ -428,9 +442,8 @@ def test_array():
 def test_matmul():
     """Computes the matrix multiplication a @ b.
     This tests the performance of array indexing.
-    Note that the NumPy implementation is by far the fastest.
-    This is to be expected as its implementation is different
-    (and superior) to the simple code below.
+    Note that the NumPy implementation is by far the fastest
+    (expected as its implementation is much more sophisticated).
     """
     def f(a, b):
         c = np.empty((a.shape[0], b.shape[1]), dtype=a.dtype)
