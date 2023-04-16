@@ -29,9 +29,10 @@ class FunctionCall:
         compile: float
         total: float
 
-    def __init__(self, func, args, kwargs):
+    def __init__(self, func, wrapper, args, kwargs):
         # Function and call arguments
         self.func = func
+        self.wrapper = wrapper
         self.args = args
         self.kwargs = kwargs
         # Properties to be lazily constructed
@@ -101,7 +102,7 @@ class FunctionCall:
     def hash(self):
         if self._hash is not None:
             return self._hash
-        self._hash = abs(hash((self.func, self.arguments_types)))
+        self._hash = abs(hash((self.func, self.wrapper, self.arguments_types)))
         return self._hash
 
     # Source code of the function

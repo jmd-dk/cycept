@@ -8,6 +8,7 @@
 #### ✨ Features
 - Added `cycept.check()` for quickly checking
   whether Cycept functions correctly.
+- Functions can now be re-jitted (`g = jit(f); h = jit(f)`).
 
 [Commits since 0.0.3](https://github.com/jmd-dk/cycept/compare/v0.0.3...v0.0.4)
 

@@ -272,7 +272,7 @@ def transpile(
         return func, None
     # Fetch function call object, implementing dynamic evaluation
     # of various attributes.
-    call = fetch_function_call(func, args, kwargs)
+    call = fetch_function_call(func, wrapper, args, kwargs)
     # If the call has already been transpiled and cached,
     # return immediately.
     if call.compiled is not None:
@@ -319,13 +319,14 @@ def transpile(
 
 # Function used to fetch FunctionCall instance from the global
 # cache or instantiating a new one if not found in the cache.
-def fetch_function_call(func, args=None, kwargs=None):
+def fetch_function_call(func, wrapper=None, args=None, kwargs=None):
     if isinstance(func, int):
         # Called with function call hash
         return cache[func]
     # Fast lookup if called with the same objects as last time
     ids = (
         id(func),
+        id(wrapper),
         *(id(arg) for arg in args),
         *kwargs.keys(),
         *(id(kwarg) for kwarg in kwargs.values()),
@@ -334,7 +335,7 @@ def fetch_function_call(func, args=None, kwargs=None):
     if loot is not None and loot[1] == ids:
         return loot[0]
     # We need to instantiate a fresh instance to obtain the hash
-    call = FunctionCall(func, args, kwargs)
+    call = FunctionCall(func, wrapper, args, kwargs)
     call_cached = cache.get(call.hash)
     if call_cached is not None:
         # Found in cache. Disregard the freshly created instance.
