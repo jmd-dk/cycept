@@ -164,7 +164,7 @@ def perf(func, *args, **kwargs):
                 return f'{speedup:.1f}'
             return f'{speedup:.2f}'
         maxlen = max(map(len, names.values()))
-        s0 = f'{{:<{maxlen + 1}}}'.format(names[name] + ':')
+        s0 = f'* {{:<{maxlen + 1}}}'.format(names[name] + ':')
         t = getattr(timings, name)
         if t == np.inf:
             print(f'{s0} Fails to compile')
@@ -233,15 +233,13 @@ def perf(func, *args, **kwargs):
     for name, jit in jits.items():
         for jit_decorator in jit.decorators:
             func_jitted = jit_decorator(func)
-            compiled_ok = True
-            with silence(jit.suppress_compiler_warnings):
-                try:
+            try:
+                with silence(jit.suppress_compiler_warnings):
                     run(func_jitted)  # to compile
-                except Exception:
-                    compiled_ok = False
-            if test_asserts and name == 'cycept':
-                assert compiled_ok
-            if compiled_ok:
+            except Exception:
+                if name == 'cycept':
+                    raise
+            else:
                 measure(name, func_jitted, calls)
                 break
         print_timings(name, calls)
