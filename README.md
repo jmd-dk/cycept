@@ -161,5 +161,5 @@ CO*N*CEPT, making them available within an easy-to-use library.
 Though no code is shared between the projects, in many respects Cycept
 can be considered a spiritual descendant of CO*N*CEPT.
 Furthermore, 'Cy*cept*' has a nice in*cept*ion ring to it,
-which seems fittingly for a piece of code that generates code.
+which seems fitting for a piece of code that generates code.
 
