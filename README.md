@@ -134,13 +134,21 @@ python -c 'import cycept; help(cycept.jit)'
 ```
 
 
-## Test suite
+## Tests
 The code contains a unit test suite which may be run as
-```
-python -c "import cycept; cycept.test()"
+```bash
+python -c "import cycept; cycept.test('cycept')"
 ```
 This requires [pytest](https://docs.pytest.org/) to be installed
 (`python -m pip install pytest`).
+
+If `cycept.test()` is called without an argument it will further run a
+performance test suite, though showing only whether each test passes or not.
+To display the actual performance benchmarks, run the performance test suite
+by itself using
+```bash
+python -c "import cycept; cycept.bench(show_func=True)"
+```
 
 
 ## What's up with the name?
@@ -152,4 +160,6 @@ attempt to extract some of the code transformation ideas buried within
 CO*N*CEPT, making them available within an easy-to-use library.
 Though no code is shared between the projects, in many respects Cycept
 can be considered a spiritual descendant of CO*N*CEPT.
+Furthermore, 'Cy*cept*' has a nice in*cept*ion ring to it,
+which seems fittingly for a piece of code that generates code.
 

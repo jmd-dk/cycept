@@ -7,22 +7,28 @@ dist: cycept cycept/tests pyproject.toml README.md CHANGELOG.md LICENSE
 	$(python) -m build
 	@$(MAKE) --no-print-directory clean-egg-info
 
-test:
+test-cycept:
 	@$(python) -c "import os; import cycept; \
-print('Testing', os.path.dirname(cycept.__file__)); cycept.test()"
-.PHONY: test
+print('Testing', os.path.dirname(cycept.__file__)); cycept.test('cycept')"
+.PHONT: test-cycept
+
+test-perf:
+	@$(python) -c "import os; import cycept; \
+print('Testing', os.path.dirname(cycept.__file__)); cycept.test('perf')"
+.PHONT: test-perf
+
+test: test-cycept test-perf
 
 test-dist:
-	@$(MAKE) --no-print-directory clean-dist clean-venv
+	@$(MAKE) --no-print-directory clean-dist clean-venv clean-tmp
 	$(python) -m venv venv
 	. ./venv/bin/activate && ./venv/bin/python -m pip install --upgrade pip
 	. ./venv/bin/activate && ./venv/bin/python -m pip install build
 	@. ./venv/bin/activate && python=./venv/bin/python $(MAKE) \
 --no-print-directory dist
-	@$(MAKE) --no-print-directory clean-tmp
 	mkdir -p tmp
 	cd tmp && . ../venv/bin/activate && ../venv/bin/python -m pip install \
-$$(echo ../dist/*.whl)[test]
+$$(echo ../dist/*.whl)[repl,test,perf]
 	cd tmp && . ../venv/bin/activate && python=../venv/bin/python $(MAKE) \
 --no-print-directory -f ../Makefile test
 	@$(MAKE) --no-print-directory clean-tmp

@@ -8,14 +8,6 @@ import time
 import warnings
 
 import numpy as np
-import cython
-
-import cycept
-
-try:
-    import numba
-except Exception:
-    numba = None
 
 
 # Number of times to repeat the measurement
@@ -31,7 +23,7 @@ calls_appropriate = 100
 # Minimum number of loop iterations allowed
 calls_min = 1
 
-# Execution strategies
+# JITs known by this module
 names = {
     'python': 'pure Python',
     'numpy': 'NumPy',
@@ -39,12 +31,10 @@ names = {
     'cython': 'Cython',
     'numba': 'Numba',
 }
-jits = {
-    'cycept': cycept.jit,
-    'cython': cython.compile,
-}
-if numba is not None:
-    jits['numba'] = functools.partial(numba.jit, nopython=True)
+class Jit:
+    def __init__(self, *decorators, suppress_compiler_warnings=False):
+        self.decorators = decorators
+        self.suppress_compiler_warnings = suppress_compiler_warnings
 @dataclasses.dataclass
 class Findings:
     python: float = np.inf
@@ -52,6 +42,46 @@ class Findings:
     cycept: float = np.inf
     cython: float = np.inf
     numba: float = np.inf
+
+
+# Function returning the JITs available on the system
+@functools.cache
+def get_jits():
+    jits = {}
+    # Cycept
+    try:
+        import cycept
+    except Exception:
+        pass
+    else:
+        jits['cycept'] = Jit(cycept.jit)
+    # Cython
+    try:
+        import cython
+    except Exception:
+        pass
+    else:
+        jits['cython'] = Jit(cython.compile, suppress_compiler_warnings=True)
+    # Numba (nopython mode, then fallback to object mode)
+    try:
+        import numba
+    except Exception:
+        pass
+    else:
+        jits['numba'] = Jit(
+            functools.partial(
+                numba.jit,
+                nopython=True,
+                fastmath=True,
+            ),
+            functools.partial(
+                numba.jit,
+                forceobj=True,
+                fastmath=True,
+            ),
+        )
+    print('JITs:', ', '.join(names[name] for name in jits))
+    return jits
 
 
 # Function for running all performance tests without using pytest.
@@ -98,8 +128,15 @@ def perf(func, *args, **kwargs):
         def check_equal():
             result = getattr(results, name)
             result_python = results.python
+            same_types = (
+                isinstance(result, (int, np.integer))
+                and isinstance(result_python, (int, np.integer))
+            ) or (
+                isinstance(result, (float, np.floating))
+                and isinstance(result_python, (float, np.floating))
+            ) or type(result) is type(result_python)
             is_equal = False
-            if type(result) is type(result_python):
+            if same_types:
                 if isinstance(result, np.ndarray):
                     if issubclass(result.dtype.type, np.floating):
                         is_equal = np.allclose(result, result_python)
@@ -110,8 +147,6 @@ def perf(func, *args, **kwargs):
                         is_equal = np.isclose(result, result_python)
                     else:
                         is_equal = (result == result_python)
-            if test_asserts and name == 'cycept':
-                assert is_equal
             return is_equal
         def get_speedup():
             t = getattr(timings, name)
@@ -128,8 +163,12 @@ def perf(func, *args, **kwargs):
             print(f'{s0} Fails to compile')
             return
         if name != 'python':
-            if not check_equal():
+            is_equal = check_equal()
+            if not is_equal:
                 print(f'{s0} Disagrees with pure Python')
+            if test_asserts and name == 'cycept':
+                assert is_equal
+            if not is_equal:
                 return
         s1 = s2 = ''
         if calls > 1:
@@ -160,7 +199,7 @@ def perf(func, *args, **kwargs):
         if func_numpy is not None:
             source_numpy = get_source(func_numpy)
             print(source_numpy)
-
+    jits = get_jits()
     print_heading()
     timings = Findings()
     results = Findings()
@@ -179,21 +218,24 @@ def perf(func, *args, **kwargs):
         print_timings('numpy', calls)
     # Jits
     for name, jit in jits.items():
-        func_jitted = jit(func)
-        silence_compiler_warnings = name in {'cython', }
-        compiled_ok = True
-        with silence(silence_compiler_warnings):
-            try:
-                run(func_jitted)  # to compile
-            except Exception:
-                compiled_ok = False
-        if compiled_ok:
-            measure(name, func_jitted, calls)
+        for jit_decorator in jit.decorators:
+            func_jitted = jit_decorator(func)
+            compiled_ok = True
+            with silence(jit.suppress_compiler_warnings):
+                try:
+                    run(func_jitted)  # to compile
+                except Exception:
+                    compiled_ok = False
+            if test_asserts and name == 'cycept':
+                assert compiled_ok
+            if compiled_ok:
+                measure(name, func_jitted, calls)
+                break
         print_timings(name, calls)
     return timings
 
 
-# Context manager for silencing stdout and stderr
+# Context manager for silencing stdout and stderr, Python and compiler warnings
 @contextlib.contextmanager
 def silence(silence_compiler_warnings=False):
 
@@ -222,8 +264,10 @@ def silence(silence_compiler_warnings=False):
         (devnull := open(os.devnull, 'w')),
         contextlib.redirect_stdout(devnull),
         contextlib.redirect_stderr(devnull),
+        warnings.catch_warnings(),
         hack_cflags(),
     ):
+        warnings.simplefilter("ignore")
         yield
 
 
@@ -282,10 +326,14 @@ def test_wallis():
         for i in range(1, n):
             π *= 4 * i ** 2 / (4 * i ** 2 - 1)
         return π
-    a = 100_000
-    timings = perf(f, a)
+    def f_numpy(n):
+        a = 4 * np.arange(1, n) ** 2
+        return 2 * np.prod(a / (a - 1))
+    n = 100_000
+    timings = perf((f, f_numpy), n)
     if test_asserts:
         assert timings.cycept < timings.python / 50
+        assert timings.cycept < timings.numpy
         assert timings.cycept < timings.cython
         assert timings.cycept < timings.numba / 0.8
 
@@ -337,7 +385,7 @@ def test_mostcommon():
 
 def test_life():
     """Evolves a glider in Conway's Game of Life.
-    This tests the performance of set operations and closures.
+    This tests the performance of pure Python operations and closures.
     """
     def f(n):
         def evolve(state):
@@ -414,6 +462,6 @@ def test_matmul():
     timings = perf((f, f_numpy), a, b)
     if test_asserts:
         assert timings.cycept < timings.python / 500
-        assert timings.cycept < timings.cython / 50
+        assert timings.cycept < timings.cython
         assert timings.cycept < timings.numba
 

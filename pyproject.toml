@@ -1,6 +1,6 @@
 [build-system]
 requires = [
-    "setuptools>=61.0",
+    "setuptools >= 65.6.0, < 68",
 ]
 build-backend = "setuptools.build_meta"
 
@@ -14,10 +14,10 @@ description = "Effortless just-in-time compilation of Python functions, powered 
 readme = "README.md"
 requires-python = ">= 3.9"
 dependencies = [
-    "cython >= 3.0.0b1",
-    "numpy >= 1.20",
-    "dill >= 0.3",
-    "tomli >= 1.1.0; python_version < '3.11'",
+    "cython >= 3.0.0b1, < 3.1",
+    "numpy >= 1.21.0, < 1.25",
+    "setuptools >= 65.6.0, < 68",
+    "tomli >= 1.1.0, < 2.1; python_version < '3.11'",
 ]
 classifiers = [
     "Intended Audience :: Developers",
@@ -44,8 +44,14 @@ classifiers = [
 "Source code" = "https://github.com/jmd-dk/cycept"
 
 [project.optional-dependencies]
+repl = [
+    "dill >= 0.2.0, < 0.4",
+]
 test = [
-    "pytest ~= 7.3",
+    "pytest >= 7.3.0, < 7.4",
+]
+perf = [
+    "numba >= 0.57.0rc1, < 0.58",
 ]
 
 [tool.setuptools]

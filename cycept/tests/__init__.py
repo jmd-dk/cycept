@@ -15,7 +15,7 @@ def test(kind=None):
         kind = [kind]
     kind = [k.removeprefix('test_') for k in kind]
     testfiles = [f'cycept.tests.test_{k}' for k in kind]
-    # Run pytest on the cycept.test subpackage.
+    # Run pytest on the cycept.test submodule.
     # We prevent pytest from writing to __pycache__ by hacking on
     # sys.dont_write_bytecode. We do this as such files are not cleanly
     # removed by 'pip uninstall cycept'.
