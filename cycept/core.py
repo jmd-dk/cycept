@@ -323,6 +323,16 @@ def fetch_function_call(func, args=None, kwargs=None):
     if isinstance(func, int):
         # Called with function call hash
         return cache[func]
+    # Fast lookup if called with the same objects as last time
+    ids = (
+        id(func),
+        *(id(arg) for arg in args),
+        *kwargs.keys(),
+        *(id(kwarg) for kwarg in kwargs.values()),
+    )
+    loot = cache.get('last')
+    if loot is not None and loot[1] == ids:
+        return loot[0]
     # We need to instantiate a fresh instance to obtain the hash
     call = FunctionCall(func, args, kwargs)
     call_cached = cache.get(call.hash)
@@ -331,6 +341,7 @@ def fetch_function_call(func, args=None, kwargs=None):
         return call_cached
     # Not found in cache. Cache and return the freshly created instance.
     cache[call.hash] = call
+    cache['last'] = call, ids  # special additional store
     return call
 cache = {}
 
