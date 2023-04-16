@@ -22,6 +22,10 @@ To run Cycept a C compiler needs to be installed on the system.
   (available through
   [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)).
 
+If you are using [Anaconda](https://www.anaconda.com/) on Linux or macOS,
+you may also obtain a C compiler through
+`conda install -c conda-forge c-compiler`.
+
 
 ## Quick demo
 ```python
