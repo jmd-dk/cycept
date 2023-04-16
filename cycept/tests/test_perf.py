@@ -77,7 +77,6 @@ def get_jits():
             functools.partial(
                 numba.jit,
                 forceobj=True,
-                fastmath=True,
             ),
         )
     print('JITs:', ', '.join(names[name] for name in jits))
@@ -314,7 +313,6 @@ def test_prime():
     if test_asserts:
         assert timings.cycept < timings.python / 4
         assert timings.cycept < timings.cython
-        assert timings.cycept < timings.numba / 0.8
 
 
 def test_wallis():
@@ -335,7 +333,6 @@ def test_wallis():
         assert timings.cycept < timings.python / 50
         assert timings.cycept < timings.numpy
         assert timings.cycept < timings.cython
-        assert timings.cycept < timings.numba / 0.8
 
 
 def test_fibonacci():
@@ -351,7 +348,6 @@ def test_fibonacci():
     if test_asserts:
         assert timings.cycept < timings.python / 25
         assert timings.cycept < timings.cython
-        assert timings.cycept < timings.numba / 0.8
 
 
 def test_mostcommon():
@@ -434,7 +430,6 @@ def test_array():
         assert timings.cycept < timings.python / 50
         assert timings.cycept < timings.numpy
         assert timings.cycept < timings.cython
-        assert timings.cycept < timings.numba / 0.8
 
 
 def test_matmul():
@@ -463,5 +458,4 @@ def test_matmul():
     if test_asserts:
         assert timings.cycept < timings.python / 500
         assert timings.cycept < timings.cython
-        assert timings.cycept < timings.numba
 

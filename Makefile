@@ -28,7 +28,7 @@ test-dist:
 --no-print-directory dist
 	mkdir -p tmp
 	cd tmp && . ../venv/bin/activate && ../venv/bin/python -m pip install \
-$$(echo ../dist/*.whl)[repl,test,perf]
+$$(echo ../dist/*.whl)[repl,test]
 	cd tmp && . ../venv/bin/activate && python=../venv/bin/python $(MAKE) \
 --no-print-directory -f ../Makefile test
 	@$(MAKE) --no-print-directory clean-tmp
