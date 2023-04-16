@@ -368,22 +368,24 @@ class FunctionCall:
                         if isinstance(node.value, int):
                             return True
                     return False
-                n_nested_subscripts = 0
+                nodes_subscript = []
                 while isinstance(node, ast.Subscript):
-                    n_nested_subscripts += 1
-                    node_subscript = node
+                    nodes_subscript.append(node)
                     node = node.value
                 if not isinstance(node, ast.Name) or node.id not in self.names:
                     return
-                if n_nested_subscripts == 1:
-                    # Memoryview/array indexing arr[x].
-                    # If we can prove that x is a scalar
+                if nodes_subscript:
+                    # Memoryview/array indexing arr[x0][x1, x2][...].
+                    # If we can prove that all x are scalars
                     # we use the memoryview as is.
-                    if isinstance(node_subscript.slice, ast.Tuple):
-                        if all(is_scalar(el) for el in node_subscript.slice.elts):
-                            return node
-                    elif is_scalar(node_subscript.slice):
-                        return node
+                    for node_subscript in nodes_subscript:
+                        if isinstance(node_subscript.slice, ast.Tuple):
+                            if not all(is_scalar(el) for el in node_subscript.slice.elts):
+                                break
+                        elif not is_scalar(node_subscript.slice):
+                            break
+                    else:
+                        return
                 # Wrap node
                 self.wrapped_any = True
                 if kind == 0:
