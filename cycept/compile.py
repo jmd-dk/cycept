@@ -91,6 +91,7 @@ def get_compiler():
         return compiler_default
     return build_ext.compiler.compiler_type
 
+
 # Class for handling compiler optimization options
 class OptimizationOptions:
 
@@ -110,7 +111,7 @@ class OptimizationOptions:
             'msvc': ['/fp:fast'],
         },
         'native': {
-            'unix': ['-march=native'],
+            'unix': ['-march=native', '-mtune=native'],
             'msvc': [],
         },
     }
