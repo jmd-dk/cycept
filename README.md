@@ -26,6 +26,14 @@ If you are using [Anaconda](https://www.anaconda.com/) on Linux or macOS,
 you may also obtain a C compiler through
 `conda install -c conda-forge c-compiler`.
 
+Once installed you can check whether Cycept functions correctly using
+```bash
+python -c 'import cycept; cycept.check()'
+```
+If it does not work due to missing `Python.h` and you are running Linux,
+make sure to install the Python development headers (Debian-like distros:
+`sudo apt install python3-dev` if you are using the system Python).
+
 
 ## Quick demo
 ```python

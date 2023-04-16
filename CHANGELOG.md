@@ -3,6 +3,18 @@
 <br/>
 
 
+### 🚀 [0.0.4](https://github.com/jmd-dk/cycept/releases/tag/v0.0.4) — *Still under development*
+
+#### ✨ Features
+- Added `cycept.check()` for quickly checking
+  whether Cycept functions correctly.
+
+[Commits since 0.0.3](https://github.com/jmd-dk/cycept/compare/v0.0.3...v0.0.4)
+
+---
+<br/><br/>
+
+
 ### 🚀 [0.0.3](https://github.com/jmd-dk/cycept/releases/tag/v0.0.3) — 2023-04-16
 
 #### ✨ Features
