@@ -14,9 +14,10 @@ def check(silent_if_ok=False):
                 π *= 4 * i ** 2 / (4 * i ** 2 - 1)
             return π
         return wallis
+    def timing(func, n, calls=100):
+        return min(timeit.repeat(lambda: func(n), number=calls))
     func = get_test_func()
     n = 10_000
-    calls = 100
     ok = True
     try:
         func_jitted = jit(func, silent=True)
@@ -34,9 +35,7 @@ def check(silent_if_ok=False):
             file=sys.stderr,
         )
     if ok:
-        t_python = min(timeit.repeat(lambda: func(n), number=calls))
-        t_cycept = min(timeit.repeat(lambda: func_jitted(n), number=calls))
-        if t_cycept > t_python:
+        if timing(func_jitted, n) > timing(func, n):
             ok = False
             print(
                 'Cycept compiled the test function without errors,',
