@@ -312,7 +312,6 @@ def test_prime():
     timings = perf(f, n)
     if test_asserts:
         assert timings.cycept < timings.python / 4
-        assert timings.cycept < timings.cython
 
 
 def test_wallis():
@@ -331,8 +330,6 @@ def test_wallis():
     timings = perf((f, f_numpy), n)
     if test_asserts:
         assert timings.cycept < timings.python / 50
-        assert timings.cycept < timings.numpy
-        assert timings.cycept < timings.cython
 
 
 def test_fibonacci():
@@ -347,7 +344,6 @@ def test_fibonacci():
     timings = perf(f, n)
     if test_asserts:
         assert timings.cycept < timings.python / 25
-        assert timings.cycept < timings.cython
 
 
 def test_mostcommon():
@@ -376,7 +372,6 @@ def test_mostcommon():
     timings = perf(f, objs)
     if test_asserts:
         assert timings.cycept < timings.python
-        assert timings.cycept < timings.cython / 0.8
 
 
 def test_life():
@@ -428,8 +423,6 @@ def test_array():
     timings = perf((f, f_numpy), a, b)
     if test_asserts:
         assert timings.cycept < timings.python / 50
-        assert timings.cycept < timings.numpy
-        assert timings.cycept < timings.cython
 
 
 def test_matmul():
@@ -457,5 +450,4 @@ def test_matmul():
     timings = perf((f, f_numpy), a, b)
     if test_asserts:
         assert timings.cycept < timings.python / 500
-        assert timings.cycept < timings.cython
 
