@@ -28,7 +28,7 @@ you may also obtain a C compiler through
 
 Once installed you can check whether Cycept functions correctly using
 ```bash
-python -c 'import cycept; cycept.check()'
+python -c "import cycept; cycept.check()"
 ```
 If it does not work due to missing `Python.h` and you are running Linux,
 make sure to install the Python development headers (Debian-like distros:
@@ -49,11 +49,12 @@ compared against each other:
 * Numba JIT
 """
 
-from time import time
+from time import perf_counter
 import numpy as np
 
-a = np.random.random((2_000, 3_000))
-b = np.random.random((2_000, 3_000))
+m, n = 2_000, 3_000
+a = np.random.random((m, n))
+b = np.random.random((m, n))
 
 # Pure Python
 def func(a, b):
@@ -62,18 +63,18 @@ def func(a, b):
         for j in range(a.shape[1]):
             x += (a[i, j] - b[i, j])**2
     return x
-tic = time()
+tic = perf_counter()
 result = func(a, b)
-toc = time()
+toc = perf_counter()
 t_ref = toc - tic
-print(f'Pure python: {result:<18} in {t_ref:.3e} s')
+print(f'Python: {result:<18} in {t_ref:.3e} s')
 
 # NumPy
 def func_numpy(a, b):
-    return np.sum((a - b)**2)
-tic = time()
+    return ((a - b)**2).sum()
+tic = perf_counter()
 result = func_numpy(a, b)
-toc = time()
+toc = perf_counter()
 t = toc - tic
 print(f'NumPy:       {result:<18} in {t:.3e} s ({int(t_ref/t)}x)')
 
@@ -87,9 +88,9 @@ def func_cycept(a, b):
             x += (a[i, j] - b[i, j])**2
     return x
 func_cycept(a[:1, :1], b[:1, :1])  # to compile
-tic = time()
+tic = perf_counter()
 result = func_cycept(a, b)
-toc = time()
+toc = perf_counter()
 t = toc - tic
 print(f'Cycept:      {result:<18} in {t:.3e} s ({int(t_ref/t)}x)')
 
@@ -103,15 +104,15 @@ def func_cython(a, b):
             x += (a[i, j] - b[i, j])**2
     return x
 func_cython(a[:1, :1], b[:1, :1])  # to compile
-tic = time()
+tic = perf_counter()
 result = func_cython(a, b)
-toc = time()
+toc = perf_counter()
 t = toc - tic
 print(f'Cython:      {result:<18} in {t:.3e} s ({int(t_ref/t)}x)')
 
 # Numba
 import numba
-@numba.jit
+@numba.njit
 def func_numba(a, b):
     x = 0
     for i in range(a.shape[0]):
@@ -119,20 +120,20 @@ def func_numba(a, b):
             x += (a[i, j] - b[i, j])**2
     return x
 func_numba(a[:1, :1], b[:1, :1])  # to compile
-tic = time()
+tic = perf_counter()
 result = func_numba(a, b)
-toc = time()
+toc = perf_counter()
 t = toc - tic
 print(f'Numba:       {result:<18} in {t:.3e} s ({int(t_ref/t)}x)')
 ```
 
 Running the above results in something similar to
 ```
-Pure python: 1000265.9355757801 in 2.316e+00 s
-NumPy:       1000265.9355757139 in 2.967e-02 s (78x)
-Cycept:      1000265.9355757138 in 6.429e-03 s (360x)
-Cython:      1000265.9355757801 in 7.103e-02 s (32x)
-Numba:       1000265.9355757801 in 7.376e-03 s (314x)
+Python: 1000265.9355757801 in 2.316e+00 s
+NumPy:  1000265.9355757139 in 2.967e-02 s (78x)
+Cycept: 1000265.9355757138 in 6.429e-03 s (360x)
+Cython: 1000265.9355757801 in 7.103e-02 s (32x)
+Numba:  1000265.9355757801 in 7.376e-03 s (314x)
 ```
 For scientific codebases in the wild, code of the NumPy style is the
 most widespread. However, writing out the loops while adding a JIT can
@@ -142,7 +143,7 @@ as no temporary arrays are created behind the scenes by the computation.
 
 See the help info on `cycept.jit` for optional arguments:
 ```bash
-python -c 'import cycept; help(cycept.jit)'
+python -c "import cycept; help(cycept.jit)"
 ```
 
 
@@ -171,7 +172,7 @@ both custom and through Cython. As the author of both projects, Cycept is my
 attempt to extract some of the code transformation ideas buried within
 CO*N*CEPT, making them available within an easy-to-use library.
 Though no code is shared between the projects, in many respects Cycept
-can be considered a spiritual descendant of CO*N*CEPT.
+can be considered a spiritual successor to CO*N*CEPT.
 Furthermore, 'Cy*cept*' has a nice in*cept*ion ring to it,
 which seems fitting for a piece of code that generates code.
 

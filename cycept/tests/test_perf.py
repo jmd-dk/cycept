@@ -10,22 +10,15 @@ import warnings
 import numpy as np
 
 
-# Number of times to repeat the measurement
+# Number of times to repeat each performance measurement
 repeats = 5
 
-# Rough minimum and maximum number of seconds to spend
-# on each pure Python performance measurement.
-t_perf = (0.1, 10)
-
-# Minimum number of loop iterations deemed appropriate
-calls_appropriate = 100
-
-# Minimum number of loop iterations allowed
-calls_min = 1
+# Rough number of seconds to spend on each performance measurement
+t_perf = 0.2
 
 # JITs known by this module
 names = {
-    'python': 'pure Python',
+    'python': 'Python',
     'numpy': 'NumPy',
     'cycept': 'Cycept',
     'cython': 'Cython',
@@ -116,20 +109,27 @@ def perf(func, *args, **kwargs):
     if isinstance(func, tuple):
         func, func_numpy = func
 
+    def measure(name, func):
+        calls = determine_calls(func)
+        t_best = np.inf
+        for _ in range(repeats):
+            result, t = run(func, calls)
+            t_best = min(t_best, t)
+        setattr(results, name, result)
+        setattr(timings, name, t_best/calls)
+        return calls
+
+    def determine_calls(func):
+        result, t = run(func)
+        calls = max(int(float(f'{t_perf/t:.0e}')), 1)
+        return calls
+
     def run(func, calls=1):
         tic = time.perf_counter()
         for _ in range(calls):
             result = func(*args, **kwargs)
         toc = time.perf_counter()
         return result, toc - tic
-
-    def measure(name, func, calls=1):
-        t_best = np.inf
-        for _ in range(repeats):
-            result, t = run(func, calls)
-            t_best = min(t_best, t)
-        setattr(results, name, result)
-        setattr(timings, name, t_best)
 
     def print_timings(name, calls):
         def check_equal():
@@ -164,27 +164,30 @@ def perf(func, *args, **kwargs):
                 return f'{speedup:.1f}'
             return f'{speedup:.2f}'
         maxlen = max(map(len, names.values()))
-        s0 = f'* {{:<{maxlen + 1}}}'.format(names[name] + ':')
+        s0 = f'⚡ {{:<{maxlen + 1}}}'.format(names[name] + ':')
         t = getattr(timings, name)
         if t == np.inf:
-            print(f'{s0} Fails to compile')
+            print(f'{s0} Fails to compile'.replace('⚡', '❌'))
             return
         if name != 'python':
             is_equal = check_equal()
             if not is_equal:
-                print(f'{s0} Disagrees with pure Python')
+                print(f'{s0} Disagrees with pure Python'.replace('⚡', '❓'))
             if test_asserts and name == 'cycept':
                 assert is_equal
             if not is_equal:
                 return
-        s1 = s2 = ''
-        if calls > 1:
-            s1 = 's'
+        s1 = 's' if calls > 1 else ' '
+        s2 = ''
         if name != 'python':
             speedup = get_speedup()
             s2 = f' ({speedup}x)'
-        t_pretty = stringify_time(t)
-        print(f'{s0} {calls} loop{s1}, best of {repeats}: {t_pretty:<7} per loop{s2}')
+        calls_pretty = pretty_int(calls)
+        t_pretty = pretty_time(t)
+        print(
+            f'{s0} {calls_pretty} loop{s1}, best of {repeats}: '
+            f'{t_pretty} per loop{s2}'
+        )
 
     def print_heading():
         def dedent(text, indentation='auto'):
@@ -217,17 +220,11 @@ def perf(func, *args, **kwargs):
     timings = Findings()
     results = Findings()
     # Pure Python
-    result, t = run(func)
-    calls = int(float(f'{t_perf[0]/(repeats*t):.0e}'))
-    if calls < calls_appropriate:
-        calls = int(float(f'{t_perf[1]/(repeats*t):.0e}'))
-        calls = min(calls, calls_appropriate)
-    calls = max(calls, calls_min)
-    measure('python', func, calls)
+    calls = measure('python', func)
     print_timings('python', calls)
     # NumPy
     if func_numpy is not None:
-        measure('numpy', func_numpy, calls)
+        calls = measure('numpy', func_numpy)
         print_timings('numpy', calls)
     # Jits
     for name, jit in jits.items():
@@ -240,7 +237,7 @@ def perf(func, *args, **kwargs):
                 if name == 'cycept':
                     raise
             else:
-                measure(name, func_jitted, calls)
+                calls = measure(name, func_jitted)
                 break
         print_timings(name, calls)
     return timings
@@ -281,9 +278,18 @@ def silence(silence_compiler_warnings=False):
         warnings.simplefilter("ignore")
         yield
 
+# Function for converting int of one significant digit to pretty str
+def pretty_int(n):
+    superscripts = '⁰¹²³⁴⁵⁶⁷⁸⁹'
+    if n < 10_000:
+        pretty_i =  str(n)
+    else:
+        factor, _, exponent = f'{n:.0e}'.partition('e')
+        pretty_i = f'{factor}×10{superscripts[int(exponent)]}'
+    return f'{pretty_i:>5}'
 
 # Function for converting time interval in seconds to pretty str
-def stringify_time(t):
+def pretty_time(t):
     if t <= 0:
         return 'no time at all'
     if t == np.inf:
@@ -298,8 +304,11 @@ def stringify_time(t):
         factor = 59.95 if unit == 's' else 999.5
         if t < factor*ratio:
             num = f'{t/ratio:#.3g}'.rstrip('.')
-            return f'{num} {unit}'
-    return str(datetime.timedelta(seconds=int(round(t)))).removeprefix('0:')
+            t_pretty = f'{num} {unit}'
+            break
+    else:
+        t_pretty = str(datetime.timedelta(seconds=int(round(t)))).removeprefix('0:')
+    return f'{t_pretty:>7}'
 
 
 # Test functions below
@@ -320,7 +329,7 @@ def test_prime():
                 count += 1
                 if count == n:
                     return i
-    n = 1_000
+    n = 500
     timings = perf(f, n)
     if test_asserts:
         assert timings.cycept < timings.python / 4
@@ -336,9 +345,9 @@ def test_wallis():
             π *= 4 * i ** 2 / (4 * i ** 2 - 1)
         return π
     def f_numpy(n):
-        a = 4 * np.arange(1, n) ** 2
+        a = 4 * np.arange(1, n, dtype=np.int64) ** 2
         return 2 * np.prod(a / (a - 1))
-    n = 100_000
+    n = 2_000_000
     timings = perf((f, f_numpy), n)
     if test_asserts:
         assert timings.cycept < timings.python / 50
@@ -349,9 +358,9 @@ def test_fibonacci():
     This tests the performance of recursive function calls.
     """
     def f(n):
-        if n < 3:
-            return 1
-        return f(n - 1) + f(n - 2)
+        if n < 2:
+            return n
+        return f(n - 2) + f(n - 1)
     n = 30
     timings = perf(f, n)
     if test_asserts:
@@ -378,8 +387,8 @@ def test_mostcommon():
             if count == n:
                 return obj
     n = 100
-    objs =  1 * n * list(np.arange(n))
-    objs += 2 * n * list(np.linspace(0, 1, n))
+    objs =  1 * n * list(np.arange(n, dtype=np.int64))
+    objs += 2 * n * list(np.linspace(0, 1, n, dtype=np.float64))
     objs += 3 * n * [None, 'hello', True, (0, 1, 2), 'hello']
     timings = perf(f, objs)
     if test_asserts:
@@ -391,6 +400,7 @@ def test_life():
     This tests the performance of pure Python operations and closures.
     """
     def f(n):
+        glider = {(0, 2), (1, 0), (1, 2), (2, 1), (2, 2)}
         def evolve(state):
             get_neighbors = lambda x, y: {
                 (x + dx, y + dy)
@@ -408,10 +418,11 @@ def test_life():
                 if count == 3 or (count == 2 and (x, y) in state):
                     state_new.add((x, y))
             return state_new
-        state = {(0, 2), (1, 0), (1, 2), (2, 1), (2, 2)}
+        state = glider.copy()
         for _ in range(4 * n):
             state = evolve(state)
-    n = 100
+        return state
+    n = 30
     timings = perf(f, n)
     if test_asserts:
         assert timings.cycept < timings.python
@@ -429,7 +440,7 @@ def test_array():
         return x
     def f_numpy(a, b):
         return ((a - b)**2).sum()
-    n = 1_000
+    n = 800
     a = np.linspace(0, 1, n ** 2, dtype=np.float64).reshape((n, n))
     b = np.linspace(1, 0, n ** 2, dtype=np.float64).reshape((n, n))
     timings = perf((f, f_numpy), a, b)
@@ -454,8 +465,8 @@ def test_matmul():
         return c
     def f_numpy(a, b):
         return a @ b
-    m, n = 100, 50
-    p, q = n, 200
+    m, n = 100, 200
+    p, q = n, 300
     a = np.linspace(0, 1, m * n, dtype=np.float64).reshape((m, n))
     b = np.linspace(0, 1, p * q, dtype=np.float64).reshape((p, q))
     timings = perf((f, f_numpy), a, b)
