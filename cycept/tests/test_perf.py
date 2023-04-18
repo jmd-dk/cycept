@@ -505,3 +505,31 @@ def test_matmul():
     if test_asserts:
         assert timings.cycept < timings.python / 500
 
+
+def test_mandelbrot():
+    """Computes an image of the Mandelbrot set.
+    This tests the performance of complex numbers and iteration.
+    """
+    def f(x_min, x_max, y_min, y_max, n_max, image):
+        for i in range(image.shape[0]):
+            for j in range(image.shape[1]):
+                x = x_min + i*(x_max - x_min)/(image.shape[0] - 1)
+                y = y_min + j*(y_max - y_min)/(image.shape[1] - 1)
+                c = x + y*1j
+                z = 0j
+                for n in range(n_max):
+                    z = z * z + c
+                    if abs(z) >= 2:
+                        break
+                image[i, j] = n
+        return image
+    x_min, x_max = -2, 0.5
+    y_min, y_max = -1.2, 1.2
+    n_max = 30
+    width = 300
+    height = int(width*(y_max - y_min)/(x_max - x_min))
+    image = np.empty((width, height), dtype=np.uint8)
+    timings = perf(f, x_min, x_max, y_min, y_max, n_max, image)
+    if test_asserts:
+        assert timings.cycept < timings.python / 30
+
