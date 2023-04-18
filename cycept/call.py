@@ -345,30 +345,33 @@ class FunctionCall:
             return
         # Wrap local arrays
         class ArrayWrapper(ast.NodeTransformer):
+            class ArrayAttribute(typing.NamedTuple):
+                name: str
+                is_scalar: bool = False
+                is_sequence: bool = False
+            array_attributes = {
+                'shape': ArrayAttribute('shape', is_sequence=True),
+                'strides': ArrayAttribute('strides', is_sequence=True),
+                'ndim': ArrayAttribute('ndim', is_scalar=True),
+                'size': ArrayAttribute('size', is_scalar=True),
+                'itemsize': ArrayAttribute('itemsize', is_scalar=True),
+                'nbytes': ArrayAttribute('nbytes', is_scalar=True),
+            }
             def __init__(self, call, names, array_args, wrapper_func, tmp_name):
                 self.call = call
                 self.names = names
                 self.array_args = array_args
                 self.wrapper_func = wrapper_func
                 self.tmp_name = tmp_name
-                self.shape_attrs = set()
+                self.sequence_attrs = set()
                 self.wrapped_any = False
                 self.tmp_any = False
             def wrap(self):
-                self.shape_attrs.clear()
+                self.sequence_attrs.clear()
                 self.wrapped_any = False
                 self.tmp_any = False
                 return self.visit(self.call.ast)
             def wrap_node(self, node, kind=0):
-                def is_scalar(node):
-                    if isinstance(node, ast.Name):
-                        tp = self.call.types[node.id]
-                        if tp.startswith('cython.') and '[' not in tp:
-                            return True
-                    elif isinstance(node, ast.Constant):
-                        if isinstance(node.value, int):
-                            return True
-                    return False
                 nodes_subscript = []
                 while isinstance(node, ast.Subscript):
                     nodes_subscript.append(node)
@@ -381,9 +384,9 @@ class FunctionCall:
                     # we use the memoryview as is.
                     for node_subscript in nodes_subscript:
                         if isinstance(node_subscript.slice, ast.Tuple):
-                            if not all(is_scalar(el) for el in node_subscript.slice.elts):
+                            if not all(self.is_scalar(el) for el in node_subscript.slice.elts):
                                 break
-                        elif not is_scalar(node_subscript.slice):
+                        elif not self.is_scalar(node_subscript.slice):
                             break
                     else:
                         return
@@ -394,6 +397,34 @@ class FunctionCall:
                 elif kind == 1:
                     self.tmp_any = True
                     node.id = f'{self.tmp_name} = {self.wrapper_func}({node.id}); {self.tmp_name}'
+            def is_scalar(self, node):
+                if isinstance(node, ast.Name):
+                    tp = self.call.types[node.id]
+                    return tp.startswith('cython.') and '[' not in tp
+                elif isinstance(node, ast.Constant):
+                    return isinstance(node.value, int)
+                elif isinstance(node, ast.UnaryOp):
+                    return self.is_scalar(node.operand)
+                elif isinstance(node, ast.BinOp):
+                    return self.is_scalar(node.left) and self.is_scalar(node.right)
+                elif isinstance(node, ast.Subscript):
+                    if isinstance(node.value, ast.Name):
+                        return node.value.id in self.names and self.is_scalar(node.slice)
+                    elif isinstance(node.value, ast.Attribute):
+                        return (
+                            node.value.value.id in self.names
+                            and (array_attribute := self.array_attributes.get(node.value.attr)) is not None
+                            and array_attribute.is_sequence
+                            and self.is_scalar(node.slice)
+                        )
+                elif isinstance(node, ast.Attribute):
+                    return (
+                        isinstance(node.value, ast.Name)
+                        and node.value.id in self.names
+                        and (array_attribute := self.array_attributes.get(node.attr)) is not None
+                        and array_attribute.is_scalar
+                    )
+                return False
             def visit_UnaryOp(self, node):
                 node = self.generic_visit(node)
                 self.wrap_node(node.operand)
@@ -422,26 +453,43 @@ class FunctionCall:
                 for arg in node.args:
                     self.wrap_node(arg)
                 return node
-            # NumPy arrays and Cython memory views generally share the same
-            # attributes. One exception is 'shape', which for memoryviews
-            # is meant to be used as memoryview.shape[i]. If the 'shape'
-            # attribute is to be used without immediately indexing into it,
-            # use a NumPy array instead of a memoryview.
+            # Cython memoryviews and NumPy arrays share a subset of
+            # their attributes, as specified by array_attributes.
+            # Below, the visit_Attribute() method will check if an attribute
+            # lookup is a recognized memoryview attribute, in which case the
+            # lookup will not be wrapped. Otherwise it will. However, for the
+            # sequence attributes, e.g. 'shape', the value of the Cython
+            # memoryview attribute and the NumPy array attribute are not
+            # equivalent (they have different lengths in general). What is
+            # equivalent is the result of subsequent indexing into these
+            # sequences, e.g. .shape[i], with i an integer (scalar).
+            # The visit_Subscript() method below will find such subscript
+            # nodes and flag them, so that the visit_Attribute() method will
+            # know not to wrap these. Sequence attribute lookups that are not
+            # immediately indexed will not be flagged
+            # and will thus be wrapped.
             def visit_Subscript(self, node):
                 value = node.value
                 if (
                     isinstance(value, ast.Attribute)
                     and isinstance(value.value, ast.Name)
                     and value.value.id in self.names
-                    and value.attr == 'shape'
+                    and (array_attribute := self.array_attributes.get(value.attr)) is not None
+                    and array_attribute.is_sequence
+                    and self.is_scalar(node.slice)
                 ):
                     # Record usage of memoryview.shape[i]
-                    self.shape_attrs.add(value)
+                    self.sequence_attrs.add(value)
                 node = self.generic_visit(node)
                 return node
             def visit_Attribute(self, node):
                 node = self.generic_visit(node)
-                if node not in self.shape_attrs:
+                if (array_attribute := self.array_attributes.get(node.attr)) is None:
+                    # Not a memoryview attribute lookup
+                    self.wrap_node(node.value)
+                elif array_attribute.is_sequence and node not in self.sequence_attrs:
+                    # Memoryview attribute lookup of sequence
+                    # that is not immediately indexed by a scalar.
                     self.wrap_node(node.value)
                 return node
         wrapper_func = '_cycept_asarray_'
