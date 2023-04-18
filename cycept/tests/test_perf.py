@@ -480,22 +480,25 @@ def test_array():
 def test_matmul():
     """Computes the matrix multiplication a @ b.
     This tests the performance of array indexing.
-    Note that the NumPy implementation is by far the fastest
-    (expected as its implementation is much more sophisticated).
+    Here NumPy is expected to be the fastest due to its
+    much more sophisticated implementation.
     """
     def f(a, b):
-        c = np.empty((a.shape[0], b.shape[1]), dtype=a.dtype)
-        for i in range(a.shape[0]):
-            for j in range(b.shape[1]):
+        m, n = a.shape
+        p, q = b.shape
+        b = b.transpose().copy()
+        c = np.empty((m, q), dtype=a.dtype)
+        for i in range(m):
+            for j in range(q):
                 val = 0
-                for k in range(a.shape[1]):
-                    val += a[i, k] * b[k, j]
+                for k in range(n):
+                    val += a[i, k] * b[j, k]
                 c[i, j] = val
         return c
     def f_numpy(a, b):
         return a @ b
-    m, n = 100, 200
-    p, q = n, 300
+    m, n = 150, 350
+    p, q = n, 250
     a = np.linspace(0, 1, m * n, dtype=np.float64).reshape((m, n))
     b = np.linspace(0, 1, p * q, dtype=np.float64).reshape((p, q))
     timings = perf((f, f_numpy), a, b)
