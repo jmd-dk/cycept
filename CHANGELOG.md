@@ -10,6 +10,9 @@
   whether Cycept functions correctly.
 - Functions can now be re-jitted (`g = jit(f); h = jit(f)`).
 
+#### 🤖 Tests
+- More correct, efficient and elegant performance test suite.
+
 [Commits since 0.0.3](https://github.com/jmd-dk/cycept/compare/v0.0.3...v0.0.4)
 
 ---
