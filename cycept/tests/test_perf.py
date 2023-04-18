@@ -56,6 +56,11 @@ def get_jits(silent=True):
         pass
     else:
         jits['cython'] = Jit(cython.compile, silent_compiler_warnings=silent)
+        # Set CYTHON_CACHE_DIR to a new temporary directory,
+        # ensuring that Cython does not reuse previously compiled modules.
+        var = 'CYTHON_CACHE_DIR'
+        if var not in os.environ:
+            os.environ[var] = tempfile.mkdtemp()
     # Numba (nopython mode, then fallback to object mode)
     try:
         import numba
@@ -235,40 +240,20 @@ def perf(func, *args, **kwargs):
         calls = measure('numpy', func_numpy)
         print_timings('numpy', calls)
     # Jits
-    with setup_jit_env():
-        for name, jit in jits.items():
-            for jit_decorator in jit.decorators:
-                func_jitted = jit_decorator(func)
-                try:
-                    with silence(silent_jitting, jit.silent_compiler_warnings):
-                        run(func_jitted)  # to compile !!!needed?
-                except Exception:
-                    if name == 'cycept':
-                        raise
-                else:
-                    calls = measure(name, func_jitted)
-                    break
-            print_timings(name, calls)
+    for name, jit in jits.items():
+        for jit_decorator in jit.decorators:
+            func_jitted = jit_decorator(func)
+            try:
+                with silence(silent_jitting, jit.silent_compiler_warnings):
+                    run(func_jitted)  # to compile !!!needed?
+            except Exception:
+                if name == 'cycept':
+                    raise
+            else:
+                calls = measure(name, func_jitted)
+                break
+        print_timings(name, calls)
     return timings
-
-
-# Context manager for setting environment variables used during jitting
-@contextlib.contextmanager
-def setup_jit_env():
-    # Set CYTHON_CACHE_DIR to a new temporary directory,
-    # ensuring that Cython does not reuse previously compiled modules.a
-    var = 'CYTHON_CACHE_DIR'
-    if var in os.environ:
-        yield
-        return
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as dir_name:
-        os.environ[var] = dir_name
-        try:
-            yield
-        except Exception:
-            raise
-        finally:
-            os.environ.pop(var)
 
 
 # Context manager for silencing stdout and stderr, Python and compiler warnings
