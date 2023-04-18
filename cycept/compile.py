@@ -10,17 +10,6 @@ import Cython.Distutils
 import setuptools
 
 
-# Implement contextlib.chdir if missing
-if sys.version_info < (3, 11):
-    @contextlib.contextmanager
-    def _chdir(path):
-        old_cwd = os.getcwd()
-        os.chdir(path)
-        yield
-        os.chdir(old_cwd)
-    contextlib.chdir = _chdir
-
-
 # Method for handling Cythonization and C compilation
 def compile(module_path, optimizations, c_lang, html):
     module_path = pathlib.Path(module_path)
@@ -35,8 +24,12 @@ def compile(module_path, optimizations, c_lang, html):
         handler = logging.StreamHandler(sys.stdout)
         handler.setLevel(logging.DEBUG)
         root.addHandler(handler)
-        yield
-        root.removeHandler(handler)
+        try:
+            yield
+        except Exception:
+            raise
+        finally:
+            root.removeHandler(handler)
     # Cythonize and compile extension module
     with (
         contextlib.chdir(module_path.parent),

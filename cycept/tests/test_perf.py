@@ -25,9 +25,9 @@ names = {
     'numba': 'Numba',
 }
 class Jit:
-    def __init__(self, *decorators, suppress_compiler_warnings=False):
+    def __init__(self, *decorators, silent_compiler_warnings=False):
         self.decorators = decorators
-        self.suppress_compiler_warnings = suppress_compiler_warnings
+        self.silent_compiler_warnings = silent_compiler_warnings
 @dataclasses.dataclass
 class Findings:
     python: float = np.inf
@@ -39,7 +39,7 @@ class Findings:
 
 # Function returning the JITs available on the system
 @functools.cache
-def get_jits():
+def get_jits(silent=True):
     jits = {}
     # Cycept
     try:
@@ -47,14 +47,14 @@ def get_jits():
     except Exception:
         pass
     else:
-        jits['cycept'] = Jit(cycept.jit)
+        jits['cycept'] = Jit(functools.partial(cycept.jit, silent=silent))
     # Cython
     try:
         import cython
     except Exception:
         pass
     else:
-        jits['cython'] = Jit(cython.compile, suppress_compiler_warnings=True)
+        jits['cython'] = Jit(cython.compile, silent_compiler_warnings=silent)
     # Numba (nopython mode, then fallback to object mode)
     try:
         import numba
@@ -78,20 +78,26 @@ def get_jits():
 
 # Function for running all performance tests without using pytest.
 # (timings will be shown this way).
-def bench(show_func=False):
+def bench(silent=True, show_func=False):
     @contextlib.contextmanager
     def set_globals():
-        global test_asserts, print_source
+        global test_asserts, print_source, silent_jitting
         test_asserts_backup = test_asserts
         print_source_backup = print_source
+        silent_jitting_backup = silent_jitting
         # Disable test asserts when not testing with pytest
         test_asserts = False
         # If show_func, enable printing of the tested source code
-        if show_func:
-            print_source = True
-        yield
-        test_asserts = test_asserts_backup
-        print_source = print_source_backup
+        print_source = show_func
+        # If silent, disable messages during jitting
+        silent_jitting = silent
+        try:
+            yield
+        except Exception:
+            raise
+        finally:
+            test_asserts = test_asserts_backup
+            print_source = print_source_backup
     # Discover and run test functions within this module
     with set_globals():
         for var, val in globals().copy().items():
@@ -101,6 +107,7 @@ def bench(show_func=False):
                 val()
 test_asserts = True
 print_source = False
+silent_jitting = True
 
 
 # Main function for performing the performance measurements
@@ -215,7 +222,7 @@ def perf(func, *args, **kwargs):
         if func_numpy is not None:
             source_numpy = get_source(func_numpy)
             print(source_numpy)
-    jits = get_jits()
+    jits = get_jits(silent_jitting)
     print_heading()
     timings = Findings()
     results = Findings()
@@ -231,8 +238,8 @@ def perf(func, *args, **kwargs):
         for jit_decorator in jit.decorators:
             func_jitted = jit_decorator(func)
             try:
-                with silence(jit.suppress_compiler_warnings):
-                    run(func_jitted)  # to compile
+                with silence(silent_jitting, jit.silent_compiler_warnings):
+                    run(func_jitted)  # to compile !!!needed?
             except Exception:
                 if name == 'cycept':
                     raise
@@ -245,29 +252,45 @@ def perf(func, *args, **kwargs):
 
 # Context manager for silencing stdout and stderr, Python and compiler warnings
 @contextlib.contextmanager
-def silence(silence_compiler_warnings=False):
+def silence(silent=True, silent_compiler_warnings=False):
 
     @contextlib.contextmanager
     def hack_cflags():
         suppress_warnings = {
-            'gcc': '-w',
-            'clang': '-Wno-everything',
+            'gcc': {
+                'CFLAGS': '-w',
+            },
+            'clang': {
+                'CFLAGS': '-Wno-everything',
+            },
+            'msvc': {
+                'CL': '/w',
+            },
         }
-        if not silence_compiler_warnings:
+        if not silent_compiler_warnings:
             yield
             return
-        cflags = ''
-        cflags_backup = None
-        if 'CFLAGS' in os.environ:
-            cflags = os.environ['CFLAGS']
-            cflags_backup = cflags
-        os.environ['CFLAGS'] = ' '.join([cflags, *suppress_warnings.values()])
-        yield
-        if cflags_backup:
-            os.environ['CFLAGS'] = cflags_backuo
-        else:
-            os.environ.pop('CFLAGS')
+        backups = {}
+        for env in suppress_warnings.values():
+            for var in env:
+                backups[var] = os.environ.get(var)
+        for env in suppress_warnings.values():
+            for var, val in env.items():
+                os.environ[var] = os.environ.get(var, '') + f' {val}'
+        try:
+            yield
+        except Exception:
+            raise
+        finally:
+            for var, val in backups.items():
+                if val is None:
+                    os.environ.pop(var)
+                else:
+                    os.environ[var] = val
 
+    if not silent:
+        yield
+        return
     with (
         (devnull := open(os.devnull, 'w')),
         contextlib.redirect_stdout(devnull),

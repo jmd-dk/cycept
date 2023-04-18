@@ -558,17 +558,18 @@ class FunctionCall:
         @contextlib.contextmanager
         def hack_sys_path():
             sys.path.append(dir_name)
-            yield
-            sys.path.remove(dir_name)
+            try:
+                yield
+            except Exception:
+                raise
+            finally:
+                sys.path.remove(dir_name)
         module_name = f'_cycept_module_{self.hash}'
         namespace = {}
         source_c = None
         html_annotation = None
-        tempfile_kwargs = {}
-        if sys.version_info >= (3, 10):
-            tempfile_kwargs |= {'ignore_cleanup_errors': True}
         with (
-            tempfile.TemporaryDirectory(**tempfile_kwargs) as dir_name,
+            tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as dir_name,
             hack_sys_path(),
         ):
             # Write Cython source to file

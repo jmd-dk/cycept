@@ -517,12 +517,16 @@ def record_locals(call):
             if name in call.module_dict:
                 nonlocals_ori[name] = call.module_dict[name]
             call.module_dict[name] = val
-        yield
-        call.module_dict.pop(cycept_module_refname)
-        for name in call.nonlocals:
-            call.module_dict.pop(name)
-        for name, val in nonlocals_ori.items():
-            call.module_dict[name] = val
+        try:
+            yield
+        except Exception:
+            raise
+        finally:
+            call.module_dict.pop(cycept_module_refname)
+            for name in call.nonlocals:
+                call.module_dict.pop(name)
+            for name, val in nonlocals_ori.items():
+                call.module_dict[name] = val
     with hack_module_dict():
         # Define modified function within definition module
         exec(source, call.module_dict)

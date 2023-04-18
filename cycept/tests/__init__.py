@@ -23,8 +23,12 @@ def test(kind=None):
     def hack_sys_dont_write_bytecode():
         backup = sys.dont_write_bytecode
         sys.dont_write_bytecode = True
-        yield
-        sys.dont_write_bytecode = backup
+        try:
+            yield
+        except Exception:
+            raise
+        finally:
+            sys.dont_write_bytecode = backup
     with hack_sys_dont_write_bytecode():
         import pytest
         pytest.main(['-p', 'no:cacheprovider', '--pyargs', *testfiles])
