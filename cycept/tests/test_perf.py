@@ -245,7 +245,7 @@ def perf(func, *args, **kwargs):
             func_jitted = jit_decorator(func)
             try:
                 with silence(silent_jitting, jit.silent_compiler_warnings):
-                    run(func_jitted)  # to compile !!!needed?
+                    run(func_jitted)
             except Exception:
                 if name == 'cycept':
                     raise
