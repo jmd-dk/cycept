@@ -4,6 +4,7 @@ import datetime
 import functools
 import inspect
 import os
+import tempfile
 import time
 import warnings
 
@@ -234,20 +235,40 @@ def perf(func, *args, **kwargs):
         calls = measure('numpy', func_numpy)
         print_timings('numpy', calls)
     # Jits
-    for name, jit in jits.items():
-        for jit_decorator in jit.decorators:
-            func_jitted = jit_decorator(func)
-            try:
-                with silence(silent_jitting, jit.silent_compiler_warnings):
-                    run(func_jitted)  # to compile !!!needed?
-            except Exception:
-                if name == 'cycept':
-                    raise
-            else:
-                calls = measure(name, func_jitted)
-                break
-        print_timings(name, calls)
+    with setup_jit_env():
+        for name, jit in jits.items():
+            for jit_decorator in jit.decorators:
+                func_jitted = jit_decorator(func)
+                try:
+                    with silence(silent_jitting, jit.silent_compiler_warnings):
+                        run(func_jitted)  # to compile !!!needed?
+                except Exception:
+                    if name == 'cycept':
+                        raise
+                else:
+                    calls = measure(name, func_jitted)
+                    break
+            print_timings(name, calls)
     return timings
+
+
+# Context manager for setting environment variables used during jitting
+@contextlib.contextmanager
+def setup_jit_env():
+    # Set CYTHON_CACHE_DIR to a new temporary directory,
+    # ensuring that Cython does not reuse previously compiled modules.a
+    var = 'CYTHON_CACHE_DIR'
+    if var in os.environ:
+        yield
+        return
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as dir_name:
+        os.environ[var] = dir_name
+        try:
+            yield
+        except Exception:
+            raise
+        finally:
+            os.environ.pop(var)
 
 
 # Context manager for silencing stdout and stderr, Python and compiler warnings
