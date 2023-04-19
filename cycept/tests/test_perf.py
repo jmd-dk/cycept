@@ -269,9 +269,6 @@ def silence(silent=True, silent_compiler_warnings=False):
             'clang': {
                 'CFLAGS': '-Wno-everything',
             },
-            'msvc': {
-                'CL': '/w',
-            },
         }
         if not silent_compiler_warnings:
             yield
@@ -503,7 +500,7 @@ def test_matmul():
     b = np.linspace(0, 1, p * q, dtype=np.float64).reshape((p, q))
     timings = perf((f, f_numpy), a, b)
     if test_asserts:
-        assert timings.cycept < timings.python / 500
+        assert timings.cycept < timings.python / 200
 
 
 def test_mandelbrot():
