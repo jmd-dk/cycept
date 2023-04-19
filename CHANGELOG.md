@@ -10,8 +10,16 @@
   whether Cycept functions correctly.
 - Functions can now be re-jitted (`g = jit(f); h = jit(f)`).
 
+#### ⚡ Optimizations
+- Improved array attribute lookup.
+- Improved proof system for array scalar indexing.
+
 #### 🤖 Tests
 - More correct, efficient and elegant performance test suite.
+- Added `test_mandelbrot` to performance test suite.
+
+#### 👌 Other changes
+- Safer context managers throughout.
 
 [Commits since 0.0.3](https://github.com/jmd-dk/cycept/compare/v0.0.3...v0.0.4)
 
