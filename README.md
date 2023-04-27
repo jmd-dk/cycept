@@ -76,7 +76,7 @@ tic = perf_counter()
 result = func_numpy(a, b)
 toc = perf_counter()
 t = toc - tic
-print(f'NumPy:       {result:<18} in {t:.3e} s ({int(t_ref/t)}x)')
+print(f'NumPy:  {result:<18} in {t:.3e} s ({int(t_ref/t)}x)')
 
 # Cycept
 import cycept
@@ -92,7 +92,7 @@ tic = perf_counter()
 result = func_cycept(a, b)
 toc = perf_counter()
 t = toc - tic
-print(f'Cycept:      {result:<18} in {t:.3e} s ({int(t_ref/t)}x)')
+print(f'Cycept: {result:<18} in {t:.3e} s ({int(t_ref/t)}x)')
 
 # Cython
 import cython
@@ -108,7 +108,7 @@ tic = perf_counter()
 result = func_cython(a, b)
 toc = perf_counter()
 t = toc - tic
-print(f'Cython:      {result:<18} in {t:.3e} s ({int(t_ref/t)}x)')
+print(f'Cython: {result:<18} in {t:.3e} s ({int(t_ref/t)}x)')
 
 # Numba
 import numba
@@ -124,7 +124,7 @@ tic = perf_counter()
 result = func_numba(a, b)
 toc = perf_counter()
 t = toc - tic
-print(f'Numba:       {result:<18} in {t:.3e} s ({int(t_ref/t)}x)')
+print(f'Numba:  {result:<18} in {t:.3e} s ({int(t_ref/t)}x)')
 ```
 
 Running the above results in something similar to
