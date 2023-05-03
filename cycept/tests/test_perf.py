@@ -466,9 +466,9 @@ def test_array():
         return x
     def f_numpy(a, b):
         return ((a - b)**2).sum()
-    n = 800
-    a = np.linspace(0, 1, n ** 2, dtype=np.float64).reshape((n, n))
-    b = np.linspace(1, 0, n ** 2, dtype=np.float64).reshape((n, n))
+    m, n = 1300, 1400
+    a = np.linspace(0, 1, m * n, dtype=np.float64).reshape((m, n))
+    b = np.linspace(1, 0, m * n, dtype=np.float64).reshape((m, n))
     timings = perf((f, f_numpy), a, b)
     if test_asserts:
         assert timings.cycept < timings.python / 50
@@ -529,4 +529,25 @@ def test_mandelbrot():
     timings = perf(f, x_min, x_max, y_min, y_max, n_max, image)
     if test_asserts:
         assert timings.cycept < timings.python / 30
+
+
+def test_trapz():
+    """Computes a definite integral using the trapezoidal rule.
+    This tests the performance of floating-point operations.
+    """
+    def f(x, y):
+        s = 0
+        for i in range(1, x.shape[0]):
+            s += (y[i - 1] + y[i]) * (x[i] - x[i - 1])
+        s /= 2
+        return s
+    def f_numpy(x, y):
+        return np.trapz(y, x)
+    n, m = 100001, 20
+    x = np.linspace(0, n * np.pi, n * m)
+    x += np.sin(x)
+    y = np.sin(x)
+    timings = perf((f, f_numpy), x, y)
+    if test_asserts:
+        assert timings.cycept < timings.python / 200
 
