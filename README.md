@@ -193,19 +193,19 @@ viewable through
 ```bash
 python -c "import cycept; help(cycept.jit)"
 ```
-Of particular interest is `html=True`, which allows for viewing of the
-transpiled Cython and C code by calling the `__cycept__()` method on the
-jitted function, e.g.
+Of particular interest is `html`, which allows for viewing of the transpiled
+Cython and C code by calling the `__cycept__()` method on the jitted function,
+e.g.
 ```python
 import cycept
 
 @cycept.jit(html=True)
-def times2(x):
+def twice(x):
     return 2*x
 
-times2(42)           # int call
-times2('hello')      # str call
-times2.__cycept__()  # view all transpilations
+twice(42)           # int call
+twice('hello')      # str call
+twice.__cycept__()  # view all transpilations
 ```
 
 
