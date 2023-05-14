@@ -141,26 +141,72 @@ often lead to dramatic performance improvements, even when compared
 to NumPy. A further benefit of this is a reduced memory footprint,
 as no temporary arrays are created behind the scenes by the computation.
 
-See the help info on `cycept.jit` for optional arguments:
-```bash
-python -c "import cycept; help(cycept.jit)"
-```
+While Cycept especially shines on "array code",
+speedups are generally achievable on all kinds of code.
 
 
-# Performance benchmarks
+## Performance benchmarks
 Cycept comes with a suite of automated performance tests, all similar in
 nature to the demo above. To run this, do
 ```bash
 python -c "import cycept; cycept.bench(show_func=True)"
 ```
 Currently, the competitors included are
+
 * Pure Python
 * NumPy
 * Cycept
 * Cython
 * Numba
+
 Note that you do not need to have *all* of the above installed in order to
 run the benchmarks.
+
+
+## How does it work?
+When a function is to be jitted by Cycept, the first step is to infer the
+types of all variables. This is done by simply running the function once in
+pure Python and applying introspection. For this reason, it it best not to
+ask for too heavy a computation for the initial call. You might want to
+manually set the type of some variables, which is possible via Python
+[type hints](https://docs.python.org/3/library/typing.html).
+
+Special treatment is given to NumPy arrays. These are converted into Cython
+memoryviews to enable fast indexing, but converted back whenever NumPy array
+operations need to be performed.
+
+With the types and array modifications in place, the modified source code is
+handed to Cython, which transpiles it into C/C++. The C compiler then compiles
+this into an extension module, from which we finally get the jitted function.
+By default, aggressive optimizations are applied at all stages.
+
+The jitted version of the function is cached, so that the whole process does
+not have to be repeated for every call to the function. If however the
+function is called with new types, another jitted version of the function will
+be made, specialized to those types.
+
+
+## Optional arguments to `@cycept.jit()`
+The transpilation carried out by Cycept can be tuned by various optional
+arguments to `@cycept.jit()`. These are all documented in the docstring,
+viewable through
+```bash
+python -c "import cycept; help(cycept.jit)"
+```
+Of particular interest is `html=True`, which allows for viewing of the
+transpiled Cython and C code by calling the `__cycept__()` method on the
+jitted function, e.g.
+```python
+import cycept
+
+@cycept.jit(html=True)
+def times2(x):
+    return 2*x
+
+times2(42)           # int call
+times2('hello')      # str call
+times2.__cycept__()  # view all transpilations
+```
 
 
 ## Unit tests
