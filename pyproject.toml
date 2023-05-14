@@ -50,7 +50,9 @@ repl = [
 ]
 test = [
     "pytest >= 7.3.0, < 7.4",
-    "numba >= 0.57.0, < 0.58",
+]
+bench = [
+    "numba < 0.58",
 ]
 
 [tool.setuptools]
