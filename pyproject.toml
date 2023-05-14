@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cycept"
-version = "0.0.4"
+version = "0.0.5"
 authors = [
     {name="Jeppe Dakin", email="jeppe_dakin@hotmail.com"},
 ]
