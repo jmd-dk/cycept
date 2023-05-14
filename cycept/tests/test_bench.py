@@ -158,6 +158,18 @@ def perf(func, *args, **kwargs):
     func_numpy = None
     if isinstance(func, tuple):
         func, func_numpy = func
+    prepare = None
+    for i, arg in enumerate(args):
+        if callable(arg) and getattr(arg, '__name__') == 'prepare':
+            prepare = arg
+            args = args[:i] + args[i + 1:]
+            break
+    else:
+        for key, val in kwargs.items():
+            if key == 'prepare' and callable(val):
+                prepare = val
+                kwargs.pop(key)
+                break
 
     def measure(name, func):
         calls = determine_calls(func)
@@ -175,11 +187,22 @@ def perf(func, *args, **kwargs):
         return calls
 
     def run(func, calls=1):
+        if prepare is None:
+            tic = time.perf_counter()
+            for _ in range(calls):
+                result = func(*args, **kwargs)
+            toc = time.perf_counter()
+            return result, toc - tic
+        t_prepare = 0
         tic = time.perf_counter()
         for _ in range(calls):
-            result = func(*args, **kwargs)
+            tic_prepare = time.perf_counter()
+            args_prepare = prepare()
+            toc_prepare = time.perf_counter()
+            t_prepare += toc_prepare - tic_prepare
+            result = func(*args, *args_prepare, **kwargs)
         toc = time.perf_counter()
-        return result, toc - tic
+        return result, (toc - tic) - t_prepare
 
     def print_timings(name, calls):
         def check_equal():
@@ -361,7 +384,7 @@ def pretty_time(t):
 # Test functions below
 
 def test_prime():
-    """Computes the n'th prime number.
+    """Compute the n'th prime number.
     This tests the performance of integer operations.
     """
     def f(n):
@@ -383,7 +406,7 @@ def test_prime():
 
 
 def test_wallis():
-    """Computes π using the Wallis product.
+    """Compute π using the Wallis product.
     This tests the performance of floating-point operations.
     """
     def f(n):
@@ -401,7 +424,7 @@ def test_wallis():
 
 
 def test_fibonacci():
-    """Computes the n'th Fibonacci number using recursion.
+    """Compute the n'th Fibonacci number using recursion.
     This tests the performance of recursive function calls.
     """
     def f(n):
@@ -415,7 +438,7 @@ def test_fibonacci():
 
 
 def test_mostcommon():
-    """Finds the most common object in a list.
+    """Find the most common object in a list.
     This tests the performance of pure Python operations.
     """
     def f(objs) -> object:
@@ -443,7 +466,7 @@ def test_mostcommon():
 
 
 def test_life():
-    """Evolves a glider in Conway's Game of Life.
+    """Evolve a glider in Conway's Game of Life.
     This tests the performance of pure Python operations and closures.
     """
     def f(n):
@@ -475,8 +498,8 @@ def test_life():
         assert timings.cycept < timings.python
 
 
-def test_array():
-    """Computes the value sum((a - b)**2) with a and b being arrays.
+def test_array_0():
+    """Compute the value sum((a - b)**2) with a and b being arrays.
     This tests the performance of array indexing.
     """
     def f(a, b):
@@ -487,7 +510,7 @@ def test_array():
         return x
     def f_numpy(a, b):
         return ((a - b)**2).sum()
-    m, n = 1300, 1400
+    m, n = 1_300, 1_400
     a = np.linspace(0, 1, m * n, dtype=np.float64).reshape((m, n))
     b = np.linspace(1, 0, m * n, dtype=np.float64).reshape((m, n))
     timings = perf((f, f_numpy), a, b)
@@ -495,8 +518,33 @@ def test_array():
         assert timings.cycept < timings.python / 50
 
 
+def test_array_1():
+    """Transform array in-place as a[i, j] /= i**2 + j**2.
+    This tests the performance of array indexing.
+    """
+    def f(a):
+        for i in range(a.shape[0]):
+            for j in range(i == 0, a.shape[1]):
+                a[i, j] /= i**2 + j**2
+        return a
+    def f_numpy(a):
+        i2 = np.arange(a.shape[0]) ** 2
+        j2 = np.arange(a.shape[1]) ** 2
+        k2 = i2[:, None] + j2[None, :]
+        k2[0, 0] = 1
+        a /= k2
+        return a
+    def prepare():
+        m, n = 1_100, 1_300
+        a = np.linspace(0, 1, m * n, dtype=np.float64).reshape((m, n))
+        return a,
+    timings = perf((f, f_numpy), prepare)
+    if setup['asserts']:
+        assert timings.cycept < timings.python / 50
+
+
 def test_matmul():
-    """Computes the matrix multiplication a @ b.
+    """Compute the matrix multiplication a @ b.
     This tests the performance of array indexing.
     Here NumPy is expected to be the fastest due to its
     much more sophisticated implementation.
@@ -525,7 +573,7 @@ def test_matmul():
 
 
 def test_mandelbrot():
-    """Computes an image of the Mandelbrot set.
+    """Compute an image of the Mandelbrot set.
     This tests the performance of complex numbers and iteration.
     """
     def f(x_min, x_max, y_min, y_max, n_max, image):
@@ -553,7 +601,7 @@ def test_mandelbrot():
 
 
 def test_trapz():
-    """Computes a definite integral using the trapezoidal rule.
+    """Compute a definite integral using the trapezoidal rule.
     This tests the performance of floating-point operations.
     """
     def f(x, y):
@@ -564,7 +612,7 @@ def test_trapz():
         return s
     def f_numpy(x, y):
         return np.trapz(y, x)
-    n, m = 100001, 20
+    n, m = 100_001, 20
     x = np.linspace(0, n * np.pi, n * m)
     x += np.sin(x)
     y = np.sin(x)
@@ -574,7 +622,7 @@ def test_trapz():
 
 
 def test_nbody():
-    """Performs an N-body simulation.
+    """Perform an N-body simulation.
     This tests the performance of array indexing
     and floating-point operations.
     """
@@ -596,17 +644,19 @@ def test_nbody():
             for i in range(n):
                 for dim in range(ndim):
                     r[i, dim] += v[i, dim] * dt
-    n = 8
-    ndim = 3
-    eps = 0.1
-    steps = 2
-    r = (
-        np.asarray(np.meshgrid(*[np.arange(n, dtype=np.float64)]*ndim))
-        .reshape((ndim, n**ndim)).T.copy()
-    )
-    r += eps*np.sin(2*np.pi*r)
-    v = np.zeros_like(r)
-    timings = perf(f, r, v, eps, steps)
+    def prepare():
+        n = 8
+        ndim = 3
+        eps = 0.1
+        steps = 2
+        r = (
+            np.asarray(np.meshgrid(*[np.arange(n, dtype=np.float64)]*ndim))
+            .reshape((ndim, n**ndim)).T.copy()
+        )
+        r += eps*np.sin(2*np.pi*r)
+        v = np.zeros_like(r)
+        return r, v, eps, steps
+    timings = perf(f, prepare)
     if setup['asserts']:
         assert timings.cycept < timings.python / 200
 
