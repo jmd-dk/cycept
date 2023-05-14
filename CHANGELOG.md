@@ -2,8 +2,18 @@
 
 <br/>
 
+### 🚀 [0.0.5](https://github.com/jmd-dk/cycept/releases/tag/v0.0.5) — *Still under development*
 
-### 🚀 [0.0.4](https://github.com/jmd-dk/cycept/releases/tag/v0.0.4) — *Still under development*
+#### 🤖 Tests
+- Proper silencing of unwanted output in performance test suite.
+
+[Commits since 0.0.4](https://github.com/jmd-dk/cycept/compare/v0.0.4...v0.0.5)
+
+---
+<br/><br/>
+
+
+### 🚀 [0.0.4](https://github.com/jmd-dk/cycept/releases/tag/v0.0.4) — 2023-04-19
 
 #### ✨ Features
 - Added `cycept.check()` for quickly checking

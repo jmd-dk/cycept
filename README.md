@@ -35,7 +35,7 @@ make sure to install the Python development headers (Debian-like distros:
 `sudo apt install python3-dev` if you are using the system Python).
 
 
-## Quick demo
+## Demo
 ```python
 """Comparison of Python function JITs
 
@@ -147,21 +147,29 @@ python -c "import cycept; help(cycept.jit)"
 ```
 
 
-## Tests
-The code contains a unit test suite which may be run as
-```bash
-python -c "import cycept; cycept.test('cycept')"
-```
-This requires [pytest](https://docs.pytest.org/) to be installed
-(`python -m pip install pytest`).
-
-If `cycept.test()` is called without an argument it will further run a
-performance test suite, though showing only whether each test passes or not.
-To display the actual performance benchmarks, run the performance test suite
-by itself using
+# Performance benchmarks
+Cycept comes with a suite of automated performance tests, all similar in
+nature to the demo above. To run this, do
 ```bash
 python -c "import cycept; cycept.bench(show_func=True)"
 ```
+Currently, the competitors included are
+* Pure Python
+* NumPy
+* Cycept
+* Cython
+* Numba
+Note that you do not need to have *all* of the above installed in order to
+run the benchmarks.
+
+
+## Unit tests
+The code contains a unit test suite which may be run as
+```bash
+python -c "import cycept; cycept.test()"
+```
+This requires [pytest](https://docs.pytest.org/) to be installed
+(`python -m pip install pytest`).
 
 
 ## What's up with the name?

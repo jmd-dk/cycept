@@ -1,9 +1,14 @@
 import contextlib
+import copy
 import dataclasses
 import datetime
 import functools
 import inspect
 import os
+import pathlib
+import shutil
+import subprocess
+import sys
 import tempfile
 import time
 import warnings
@@ -21,14 +26,16 @@ t_perf = 0.2
 names = {
     'python': 'Python',
     'numpy': 'NumPy',
+    # JITs
     'cycept': 'Cycept',
     'cython': 'Cython',
     'numba': 'Numba',
 }
 class Jit:
-    def __init__(self, *decorators, silent_compiler_warnings=False):
+    def __init__(self, name, version, *decorators):
+        self.name = name
+        self.version = version
         self.decorators = decorators
-        self.silent_compiler_warnings = silent_compiler_warnings
 @dataclasses.dataclass
 class Findings:
     python: float = np.inf
@@ -40,70 +47,88 @@ class Findings:
 
 # Function returning the JITs available on the system
 @functools.cache
-def get_jits(silent=True):
+def get_jits():
+    include = lambda name: not setup['jits'] or name in setup['jits']
     jits = {}
     # Cycept
-    try:
-        import cycept
-    except Exception:
-        pass
-    else:
-        jits['cycept'] = Jit(functools.partial(cycept.jit, silent=silent))
+    if include('cycept'):
+        try:
+            import cycept
+        except Exception:
+            pass
+        else:
+            jits['cycept'] = Jit(
+                'cycept',
+                cycept.__version__,
+                functools.partial(cycept.jit, silent=setup['silent']),
+            )
     # Cython
-    try:
-        import cython
-    except Exception:
-        pass
-    else:
-        jits['cython'] = Jit(cython.compile, silent_compiler_warnings=silent)
-        # Set CYTHON_CACHE_DIR to a new temporary directory,
-        # ensuring that Cython does not reuse previously compiled modules.
-        var = 'CYTHON_CACHE_DIR'
-        if var not in os.environ:
-            os.environ[var] = tempfile.mkdtemp()
+    if include('cython'):
+        try:
+            import cython
+        except Exception:
+            pass
+        else:
+            jits['cython'] = Jit('cython', cython.__version__, cython.compile)
+            # Set CYTHON_CACHE_DIR to a new temporary directory,
+            # ensuring that Cython does not reuse previously compiled modules.
+            var = 'CYTHON_CACHE_DIR'
+            if var not in os.environ:
+                os.environ[var] = tempfile.mkdtemp()
     # Numba (nopython mode, then fallback to object mode)
-    try:
-        import numba
-    except Exception:
-        pass
-    else:
-        jits['numba'] = Jit(
-            functools.partial(
-                numba.jit,
-                nopython=True,
-                fastmath=True,
-            ),
-            functools.partial(
-                numba.jit,
-                forceobj=True,
-            ),
-        )
-    print('JITs:', ', '.join(names[name] for name in jits))
+    if include('numba'):
+        try:
+            import numba
+        except Exception:
+            pass
+        else:
+            jits['numba'] = Jit(
+                'numba',
+                numba.__version__,
+                functools.partial(
+                    numba.jit,
+                    nopython=True,
+                    fastmath=True,
+                ),
+                functools.partial(
+                    numba.jit,
+                    forceobj=True,
+                ),
+            )
+    # Print out information
+    print('Python', '.'.join(map(str, sys.version_info[:3])))
+    if setup['numpy']:
+        print('NumPy', np.__version__)
+    print('JITs:')
+    for jit in jits.values():
+        print('*', names[jit.name], jit.version)
     return jits
 
 
-# Function for running all performance tests without using pytest.
-# (timings will be shown this way).
-def bench(silent=True, show_func=False):
+# Function for running all performance tests
+def bench(show_func=False, silent=True):
+
     @contextlib.contextmanager
     def set_globals():
-        global test_asserts, print_source, silent_jitting
-        test_asserts_backup = test_asserts
-        print_source_backup = print_source
-        silent_jitting_backup = silent_jitting
-        # Disable test asserts when not testing with pytest
-        test_asserts = False
+        setup_backup = copy.deepcopy(setup)
+        # Include every JIT found on the system
+        setup['jits'].clear()
+        # Include NumPy
+        setup['numpy'] = True
+        # Disable test asserts
+        setup['asserts'] = False
         # If show_func, enable printing of the tested source code
-        print_source = show_func
+        setup['show_func'] = show_func
         # If silent, disable messages during jitting
-        silent_jitting = silent
+        setup['silent'] = silent
         try:
             yield
         except Exception:
             raise
         finally:
-            test_asserts = test_asserts_backup
-            print_source = print_source_backup
+            setup.clear()
+            setup.update(setup_backup)
+
     # Discover and run test functions within this module
     with set_globals():
         for var, val in globals().copy().items():
@@ -111,9 +136,21 @@ def bench(silent=True, show_func=False):
                 continue
             if callable(val):
                 val()
-test_asserts = True
-print_source = False
-silent_jitting = True
+        # Cleanup
+        jits = get_jits()
+        if 'cython' in jits:
+            cache_dir = os.environ.get('CYTHON_CACHE_DIR')
+            if cache_dir is not None and pathlib.Path(cache_dir).is_dir():
+                shutil.rmtree(cache_dir, ignore_errors=True)
+
+# Default setup, temporarily changed by the bench() function
+setup = {
+    'jits': ['cycept'],
+    'numpy': False,
+    'asserts': True,
+    'show_func': False,
+    'silent': True,
+}
 
 
 # Main function for performing the performance measurements
@@ -186,7 +223,7 @@ def perf(func, *args, **kwargs):
             is_equal = check_equal()
             if not is_equal:
                 print(f'{s0} Disagrees with pure Python'.replace('⚡', '❓'))
-            if test_asserts and name == 'cycept':
+            if setup['asserts'] and name == 'cycept':
                 assert is_equal
             if not is_equal:
                 return
@@ -217,9 +254,9 @@ def perf(func, *args, **kwargs):
             source = dedent(inspect.getsource(func))
             return source
         caller_name = inspect.currentframe().f_back.f_back.f_code.co_name
-        hashes = '#' * (1 + print_source)
+        hashes = '#' * (1 + setup['show_func'])
         print(f'\n{hashes} {caller_name}')
-        if not print_source:
+        if not setup['show_func']:
             return
         doc = dedent(globals()[caller_name].__doc__, ' ' * 4)
         print('\n'.join(f'# {line}' for line in doc.split('\n')))
@@ -228,7 +265,7 @@ def perf(func, *args, **kwargs):
         if func_numpy is not None:
             source_numpy = get_source(func_numpy)
             print(source_numpy)
-    jits = get_jits(silent_jitting)
+    jits = get_jits()
     print_heading()
     timings = Findings()
     results = Findings()
@@ -236,15 +273,15 @@ def perf(func, *args, **kwargs):
     calls = measure('python', func)
     print_timings('python', calls)
     # NumPy
-    if func_numpy is not None:
+    if setup['numpy'] and func_numpy is not None:
         calls = measure('numpy', func_numpy)
         print_timings('numpy', calls)
-    # Jits
+    # JITs
     for name, jit in jits.items():
         for jit_decorator in jit.decorators:
             func_jitted = jit_decorator(func)
             try:
-                with silence(silent_jitting, jit.silent_compiler_warnings):
+                with silence():
                     run(func_jitted)
             except Exception:
                 if name == 'cycept':
@@ -258,40 +295,24 @@ def perf(func, *args, **kwargs):
 
 # Context manager for silencing stdout and stderr, Python and compiler warnings
 @contextlib.contextmanager
-def silence(silent=True, silent_compiler_warnings=False):
+def silence():
 
     @contextlib.contextmanager
-    def hack_cflags():
-        suppress_warnings = {
-            'gcc': {
-                'CFLAGS': '-w',
-            },
-            'clang': {
-                'CFLAGS': '-Wno-everything',
-            },
-        }
-        if not silent_compiler_warnings:
-            yield
-            return
-        backups = {}
-        for env in suppress_warnings.values():
-            for var in env:
-                backups[var] = os.environ.get(var)
-        for env in suppress_warnings.values():
-            for var, val in env.items():
-                os.environ[var] = os.environ.get(var, '') + f' {val}'
+    def hack_subprocess_Popen():
+        subprocess_Popen = subprocess.Popen
+        def Popen(*args, **kwargs):
+            kwargs['stdout'] = subprocess.DEVNULL
+            kwargs['stderr'] = subprocess.DEVNULL
+            return subprocess_Popen(*args, **kwargs)
+        subprocess.Popen = Popen
         try:
             yield
         except Exception:
             raise
         finally:
-            for var, val in backups.items():
-                if val is None:
-                    os.environ.pop(var)
-                else:
-                    os.environ[var] = val
+            subprocess.Popen = subprocess_Popen
 
-    if not silent:
+    if not setup['silent']:
         yield
         return
     with (
@@ -299,9 +320,9 @@ def silence(silent=True, silent_compiler_warnings=False):
         contextlib.redirect_stdout(devnull),
         contextlib.redirect_stderr(devnull),
         warnings.catch_warnings(),
-        hack_cflags(),
+        hack_subprocess_Popen(),
     ):
-        warnings.simplefilter("ignore")
+        warnings.simplefilter('ignore')
         yield
 
 # Function for converting int of one significant digit to pretty str
@@ -357,7 +378,7 @@ def test_prime():
                     return i
     n = 500
     timings = perf(f, n)
-    if test_asserts:
+    if setup['asserts']:
         assert timings.cycept < timings.python / 4
 
 
@@ -375,7 +396,7 @@ def test_wallis():
         return 2 * np.prod(a / (a - 1))
     n = 2_000_000
     timings = perf((f, f_numpy), n)
-    if test_asserts:
+    if setup['asserts']:
         assert timings.cycept < timings.python / 50
 
 
@@ -389,7 +410,7 @@ def test_fibonacci():
         return f(n - 2) + f(n - 1)
     n = 30
     timings = perf(f, n)
-    if test_asserts:
+    if setup['asserts']:
         assert timings.cycept < timings.python / 25
 
 
@@ -417,7 +438,7 @@ def test_mostcommon():
     objs += 2 * n * list(np.linspace(0, 1, n, dtype=np.float64))
     objs += 3 * n * [None, 'hello', True, (0, 1, 2), 'hello']
     timings = perf(f, objs)
-    if test_asserts:
+    if setup['asserts']:
         assert timings.cycept < timings.python
 
 
@@ -450,7 +471,7 @@ def test_life():
         return state
     n = 30
     timings = perf(f, n)
-    if test_asserts:
+    if setup['asserts']:
         assert timings.cycept < timings.python
 
 
@@ -470,7 +491,7 @@ def test_array():
     a = np.linspace(0, 1, m * n, dtype=np.float64).reshape((m, n))
     b = np.linspace(1, 0, m * n, dtype=np.float64).reshape((m, n))
     timings = perf((f, f_numpy), a, b)
-    if test_asserts:
+    if setup['asserts']:
         assert timings.cycept < timings.python / 50
 
 
@@ -499,7 +520,7 @@ def test_matmul():
     a = np.linspace(0, 1, m * n, dtype=np.float64).reshape((m, n))
     b = np.linspace(0, 1, p * q, dtype=np.float64).reshape((p, q))
     timings = perf((f, f_numpy), a, b)
-    if test_asserts:
+    if setup['asserts']:
         assert timings.cycept < timings.python / 200
 
 
@@ -527,7 +548,7 @@ def test_mandelbrot():
     height = int(width*(y_max - y_min)/(x_max - x_min))
     image = np.empty((width, height), dtype=np.uint8)
     timings = perf(f, x_min, x_max, y_min, y_max, n_max, image)
-    if test_asserts:
+    if setup['asserts']:
         assert timings.cycept < timings.python / 30
 
 
@@ -548,6 +569,6 @@ def test_trapz():
     x += np.sin(x)
     y = np.sin(x)
     timings = perf((f, f_numpy), x, y)
-    if test_asserts:
+    if setup['asserts']:
         assert timings.cycept < timings.python / 200
 

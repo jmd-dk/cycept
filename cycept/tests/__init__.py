@@ -1,20 +1,16 @@
 import contextlib
 import sys
 
-from .test_perf import bench
+from .test_bench import bench
 
 
 def test(kind=None):
-    kind_all = ['cycept', 'perf']
-    kind_default = kind_all
-    if isinstance(kind, str):
-        kind = kind.removeprefix('test_')
-    if kind in {None, 'all'}:
-        kind = kind_all
+    testfiles = ['cycept.tests']
     if isinstance(kind, str):
         kind = [kind]
-    kind = [k.removeprefix('test_') for k in kind]
-    testfiles = [f'cycept.tests.test_{k}' for k in kind]
+    if isinstance(kind, (list, tuple)):
+        kind = [k.removeprefix('test_') for k in kind]
+        testfiles = [f'cycept.tests.test_{k}' for k in kind]
     # Run pytest on the cycept.test submodule.
     # We prevent pytest from writing to __pycache__ by hacking on
     # sys.dont_write_bytecode. We do this as such files are not cleanly

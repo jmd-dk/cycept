@@ -10,14 +10,17 @@ dist: cycept cycept/tests pyproject.toml README.md CHANGELOG.md LICENSE
 test-cycept:
 	@$(python) -c "import os; import cycept; \
 print('Testing', os.path.dirname(cycept.__file__)); cycept.test('cycept')"
-.PHONT: test-cycept
+.PHONY: test-cycept
 
-test-perf:
+test-bench:
 	@$(python) -c "import os; import cycept; \
-print('Testing', os.path.dirname(cycept.__file__)); cycept.test('perf')"
-.PHONT: test-perf
+print('Testing', os.path.dirname(cycept.__file__)); cycept.test('bench')"
+.PHONY: test-bench
 
-test: test-cycept test-perf
+test:
+	@$(python) -c "import os; import cycept; \
+print('Testing', os.path.dirname(cycept.__file__)); cycept.test()"
+.PHONY: test
 
 test-dist:
 	@$(MAKE) --no-print-directory clean-dist clean-venv clean-tmp
