@@ -42,10 +42,12 @@ def get_version():
     while True:
         if (path_pyproject := path / 'pyproject.toml').is_file():
             if (tomllib := get_tomllib()) is not None:
-                info = tomllib.loads(path_pyproject.read_text('utf-8'))
-                if info['project']['name'] == 'cycept':
-                    return info['project']['version']
-                break
+                try:
+                    info = tomllib.loads(path_pyproject.read_text('utf-8'))
+                    if info['project']['name'] == 'cycept':
+                        return info['project']['version']
+                except Exception:
+                    pass
             break
         if path.parent == path:
             break
