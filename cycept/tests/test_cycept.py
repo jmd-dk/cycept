@@ -133,6 +133,20 @@ def test_closure():
         assert f(3) == 7
 
 
+def test_classdef():
+    @jit
+    def f(a):
+        class G:
+            def __init__(self, a):
+                self.a = a
+            def h(self):
+                return 2*self.a
+        g = G(a)
+        return g.h()
+    for _ in range(2):
+        assert f(3) == 6
+
+
 def test_method():
     class Adder:
         def __init__(self, a):
@@ -144,6 +158,30 @@ def test_method():
     adder = Adder(a)
     for _ in range(2):
         assert adder.f(b) == 5
+
+
+def test_unicodename():
+    @jit
+    def φ(α, β=7):
+        class Γ:
+            def __init__(self, α):
+                self.α = α
+            def η(self):
+                return 3*self.α
+        def δ(γ):
+            return γ.η()
+        γ = Γ(α)
+        return æøå*β*δ(γ)
+    æøå = 2
+    φ(5)
+    assert φ(5) == 210
+    assert φ(α=5) == 210
+    assert φ(5, β=7) == 210
+    assert φ(α=5, β=7) == 210
+    assert φ(5, 9) == 270
+    assert φ(5, β=9) == 270
+    assert φ(α=5, β=9) == 270
+    assert φ('∞') == 42*'∞'
 
 
 def test_arg_default():

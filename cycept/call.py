@@ -329,6 +329,43 @@ class FunctionCall:
         annotations, source = AnnotationExtractor(self).extract()
         return annotations, source
 
+    # Method for transforming all Unicode names to ASCII names
+    def asciify_names(self):
+        from .core import asciify
+        class UnicodeRenamer(ast.NodeTransformer):
+            def __init__(self, call):
+                self.call = call
+            def rename(self):
+                source = ast.unparse(self.visit(self.call.ast))
+                return source
+            def visit_Name(self, node):
+                name = asciify(node.id)
+                return type(node)(**(vars(node) | {'id': name}))
+            def visit_ClassDef(self, node):
+                node = self.generic_visit(node)
+                name = asciify(node.name)
+                return type(node)(**(vars(node) | {'name': name}))
+            def visit_FunctionDef(self, node):
+                node = self.generic_visit(node)
+                name = asciify(node.name)
+                return type(node)(**(vars(node) | {'name': name}))
+            def visit_arg(self, node):
+                node = self.generic_visit(node)
+                name = asciify(node.arg)
+                return type(node)(**(vars(node) | {'arg': name}))
+            def visit_keyword(self, node):
+                node = self.generic_visit(node)
+                name = asciify(node.arg)
+                return type(node)(**(vars(node) | {'arg': name}))
+            def visit_Attribute(self, node):
+                node = self.generic_visit(node)
+                name = asciify(node.attr)
+                return type(node)(**(vars(node) | {'attr': name}))
+        self._source = UnicodeRenamer(self).rename()
+        # Note that name changes caused by the above ASCIIfication
+        # makes the AST, the function signature and many other attributes
+        # invalid, yet me do not flag any attributes as such.
+
     # Method for wrapping NumPy array variables in numpy.asarray()
     # whenever operations are used that do not work with Cython memoryviews.
     def protect_arrays(self, array_args):
@@ -526,6 +563,7 @@ class FunctionCall:
     # Method for updating the source from being a Python function
     # to being a Cython extension module.
     def to_cython(self, directives):
+        from .core import asciify
         preamble = [
             '#',  # first comment line can have C code attached to it
             f'# Cycept version of {self} with type signature',
@@ -534,7 +572,7 @@ class FunctionCall:
         preamble += self.cython_module_lines
         excludes = (self.func_name, 'cython')
         fake_globals = [
-            f'{name} = object()'
+            f'{asciify(name)} = object()'
             for name in collections.ChainMap(self.nonlocals, self.globals)
             if name not in excludes
         ]
@@ -548,11 +586,11 @@ class FunctionCall:
             'import cython',
             'cimport cython',
         ]
-        header = ['\n# Function to be jitted']
+        header_top = ['\n# Function to be jitted']
         if self.ccall_allowed():
-            header.append('@cython.ccall')
+            header_top.append('@cython.ccall')
         for directive, val in directives.items():
-            header.append(f'@cython.{directive}({val!r})')
+            header_top.append(f'@cython.{directive}({val!r})')
         excludes = ('return', 'cycept')
         declaration_locals = ', '.join(
             f'{name}={tp}'
@@ -560,16 +598,29 @@ class FunctionCall:
             if name not in excludes
         )
         declaration_return = self.types.get('return', 'object')
+        header_bot = []
         if declaration_locals:
-            header.append(f'@cython.locals({declaration_locals})')
-        header.append(f'@cython.returns({declaration_return})')
+            header_bot.append(f'@cython.locals({declaration_locals})')
+        header_bot.append(f'@cython.returns({declaration_return})')
+        # ASCIIfy Unicode variable names in the source and bottom header
         self._source = '\n'.join(
             itertools.chain(
-                preamble,
-                header,
+                header_bot,
                 self.source.split('\n'),
             )
         )
+        self._ast = None
+        self.asciify_names()
+        # Combine with preamble and top header
+        self._source = '\n'.join(
+            itertools.chain(
+                preamble,
+                header_top,
+                self.source.split('\n'),
+            )
+        )
+        # ASCIIfy the stored function name itself
+        self._func_name = asciify(self.func_name)
 
     # Method for determining whether the function to be Cythonized
     # may be done so using @cython.ccall (cpdef).
@@ -600,6 +651,7 @@ class FunctionCall:
 
     # Method for handling Cythonization and C compilation
     def compile(self, optimizations, c_lang, html, silent):
+        from .core import asciify
         # Cythonize and compile extension module within temporary directory.
         # The compiled module is then imported (through hacking of sys.path)
         # before it is removed from disk.
@@ -679,6 +731,7 @@ class FunctionCall:
             if name == self.func_name:
                 continue
             module_compiled_dict[name] = val
+            module_compiled_dict[asciify(name)] = val
         # Store compilation products
         self.compiled = self.Compiled(
             func_compiled,

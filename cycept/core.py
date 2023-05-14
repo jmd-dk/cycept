@@ -9,6 +9,7 @@ import pathlib
 import re
 import sys
 import time
+import unicodedata
 import warnings
 
 import cython
@@ -222,6 +223,7 @@ def jit(func=None, **options):
         func_compiled, result = transpile(func, wrapper, args, kwargs, **options)
         if func_compiled is not None:
             # Got compiled function. Call it to get result.
+            kwargs = {asciify(var): val for var, val in kwargs.items()}
             result = func_compiled(*args, **kwargs)
         # If a Cython memoryview is returned, convert to NumPy array
         if 'memoryview' in str(type(result)).lower():
@@ -279,6 +281,9 @@ def transpile(
         return call.compiled.func, None
     # The function call object was not found in cache
     tic = time.perf_counter()
+    # Print jitting message if not running silently
+    if not silent:
+        print(f'Jitting {call!r}')
     # Populate global mappings of Cython types in accordance
     # with user integral and floating specifications.
     cython_types_user, cython_types_reverse_user = get_cython_types(
@@ -290,9 +295,7 @@ def transpile(
     cython_types.update(cython_types_user)
     cython_types_reverse.clear()
     cython_types_reverse.update(cython_types_reverse_user)
-    # Print jitting message if not running silently
-    if not silent:
-        print(f'Jitting {call!r}')
+    # Transform Unicode names to ASCII names
     # Record types of passed arguments and locals. As a side effect,
     # the function is called and the return value obtained.
     record_types(call)
@@ -345,6 +348,33 @@ def fetch_function_call(func, wrapper=None, args=None, kwargs=None):
     cache['last'] = call, ids  # special additional store
     return call
 cache = {}
+
+
+# Function converting a string containing Unicode characters
+# into a corresponding string using only ASCII.
+def asciify(text):
+    text_ascii = []
+    chars = ''
+    for char in text:
+        if ord(char) < 128:
+            text_ascii.append(char)
+            continue
+        chars += char
+        try:
+            unicode_char_name = unicodedata.name(chars)
+        except Exception:
+            continue
+        text_ascii.append(asciify_regex.sub(asciify_repl, unicode_char_name))
+        chars = ''
+    return ''.join(text_ascii)
+asciify_subs = {
+    ' ': '_',
+    '-': '_',
+    '^': 'UNICODE_',
+}
+asciify_subs[''] = asciify_subs['^']
+asciify_regex = re.compile('|'.join(asciify_subs).strip('|'))
+asciify_repl = lambda match: asciify_subs[match[0]]
 
 
 # Function for setting up Cython directives
