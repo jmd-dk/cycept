@@ -7,21 +7,6 @@ dist: cycept cycept/tests pyproject.toml README.md CHANGELOG.md LICENSE
 	$(python) -m build
 	@$(MAKE) --no-print-directory clean-egg-info
 
-test-cycept:
-	@$(python) -c "import os; import cycept; \
-print('Testing', os.path.dirname(cycept.__file__)); cycept.test('cycept')"
-.PHONY: test-cycept
-
-test-bench:
-	@$(python) -c "import os; import cycept; \
-print('Testing', os.path.dirname(cycept.__file__)); cycept.test('bench')"
-.PHONY: test-bench
-
-test:
-	@$(python) -c "import os; import cycept; \
-print('Testing', os.path.dirname(cycept.__file__)); cycept.test()"
-.PHONY: test
-
 test-dist:
 	@$(MAKE) --no-print-directory clean-dist clean-venv clean-tmp
 	$(python) -m venv venv
@@ -31,11 +16,33 @@ test-dist:
 --no-print-directory dist
 	mkdir -p tmp
 	cd tmp && . ../venv/bin/activate && ../venv/bin/python -m pip install \
-$$(echo ../dist/*.whl)[repl,test]
-	cd tmp && . ../venv/bin/activate && python=../venv/bin/python $(MAKE) \
---no-print-directory -f ../Makefile test
+$$(echo ../dist/*.whl)[repl,test,bench]
+	@cd tmp && . ../venv/bin/activate && python=../venv/bin/python $(MAKE) \
+--no-print-directory -f ../Makefile test-all
 	@$(MAKE) --no-print-directory clean-tmp
 .PHONY: test-dist
+
+define test
+    $(python) -c "import pathlib; import cycept; \
+print('Testing from', pathlib.Path(cycept.__file__).parent); cycept.test($(1))"
+endef
+
+test-all:
+	@$(call test)
+.PHONY: test-all
+
+test-cycept:
+	@$(call test,'cycept')
+.PHONY: test-cycept
+
+test-bench:
+	@$(call test,'bench')
+.PHONY: test-bench
+
+bench:
+	@$(python) -c "import pathlib; import cycept; \
+print('Benchmarking from', pathlib.Path(cycept.__file__).parent); cycept.bench()"
+.PHONY: test
 
 clean-dist:
 	$(RM) -r dist
