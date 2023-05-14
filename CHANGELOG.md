@@ -4,10 +4,14 @@
 
 ### 🚀 [0.0.5](https://github.com/jmd-dk/cycept/releases/tag/v0.0.5) — *Still under development*
 
+#### ✨ Features
+- Support for Unicode variable names.
+
 #### 🤖 Tests
 - Proper silencing of unwanted output in performance test suite.
 - Added `test_trapz` to performance test suite.
 - Added `test_nbody` to performance test suite.
+- Added `test_array_1` to performance test suite.
 
 [Commits since 0.0.4](https://github.com/jmd-dk/cycept/compare/v0.0.4...main)
 
