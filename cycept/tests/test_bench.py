@@ -572,3 +572,41 @@ def test_trapz():
     if setup['asserts']:
         assert timings.cycept < timings.python / 200
 
+
+def test_nbody():
+    """Performs an N-body simulation.
+    This tests the performance of array indexing
+    and floating-point operations.
+    """
+    def f(r, v, eps, steps, dt=1e-2):
+        n, ndim = r.shape
+        d = np.empty(3, dtype=np.float64)
+        for t in range(steps):
+            for i in range(n):
+                for j in range(i + 1, n):
+                    r2 = 0
+                    for dim in range(ndim):
+                        d[dim] = r[i, dim] - r[j, dim]
+                        r2 += d[dim] ** 2
+                    r3_inv_softened = (r2 + eps ** 2) ** (-1.5)
+                    for dim in range(ndim):
+                        f = -d[dim] * r3_inv_softened
+                        v[i, dim] += f
+                        v[j, dim] -= f
+            for i in range(n):
+                for dim in range(ndim):
+                    r[i, dim] += v[i, dim] * dt
+    n = 8
+    ndim = 3
+    eps = 0.1
+    steps = 2
+    r = (
+        np.asarray(np.meshgrid(*[np.arange(n, dtype=np.float64)]*ndim))
+        .reshape((ndim, n**ndim)).T.copy()
+    )
+    r += eps*np.sin(2*np.pi*r)
+    v = np.zeros_like(r)
+    timings = perf(f, r, v, eps, steps)
+    if setup['asserts']:
+        assert timings.cycept < timings.python / 200
+
