@@ -51,6 +51,9 @@ class FunctionCall:
         self._nonlocals = None
         # Record of inferred types of local variables
         self.locals_types = {}
+        # Local names which should be disregarded when
+        # creating typed local variables.
+        self.locals_excludes = {'return'}
         # Additional source lines to be included in the Cython extension module
         self.cython_module_lines = []
         # Compilation products
@@ -591,11 +594,10 @@ class FunctionCall:
             header_top.append('@cython.ccall')
         for directive, val in directives.items():
             header_top.append(f'@cython.{directive}({val!r})')
-        excludes = ('return', 'cycept')
         declaration_locals = ', '.join(
             f'{name}={tp}'
             for name, tp in self.types.items()
-            if name not in excludes
+            if name not in self.locals_excludes
         )
         declaration_return = self.types.get('return', 'object')
         header_bot = []

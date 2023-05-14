@@ -5,6 +5,7 @@ import dataclasses
 import functools
 import importlib
 import importlib.metadata
+import inspect
 import pathlib
 import re
 import sys
@@ -473,7 +474,7 @@ class NdarrayTypeInfo:
 
 
 # Function for recording types
-def record_types(call, variables=None):
+def record_types(call, variables=None, do_record=True):
     if isinstance(call, int):
         # Called with function call hash
         call = fetch_function_call(call)
@@ -481,6 +482,25 @@ def record_types(call, variables=None):
         # Use function call arguments
         variables = call.arguments
     for name, val in variables.items():
+        if inspect.ismodule(val) or callable(val):
+            # Modules, closure functions and classes should not be
+            # assigned a type (would have been object).
+            call.locals_excludes.add(name)
+            # Similarly, non-local variables used within closures should not
+            # be assigned a type. Doing so will lead Cython to perform
+            # scoping violations.
+            try:
+                closurevars = inspect.getclosurevars(val)
+            except TypeError:
+                pass
+            else:
+                call.locals_excludes |= set(closurevars.nonlocals)
+            continue
+        # If this call is made from a closure instead of the outer function
+        # to be jitted, do_record will be False. In this case, none of the
+        # supplied variables should participate amongst the types variables.
+        if not do_record:
+            continue
         tp = get_type(val)
         tp_old = call.locals_types.setdefault(name, tp)
         if tp_old == tp:
@@ -526,7 +546,12 @@ def record_locals(call):
     call._ast = None  # invalidate AST after renaming
     # Add type recording calls to source
     cycept_module_refname = '__cycept__'
-    record_str = f'{cycept_module_refname}.record_types({call.hash}, locals())'
+    record_str = (
+        f'import inspect; '
+        f'{cycept_module_refname}.record_types('
+        f'{call.hash}, locals(), inspect.currentframe().f_code.co_name == \'{func_name_tmp}\''
+        f')'
+    )
     source = re.sub(
         r'( |;)return($|\W)',
         rf'\g<1>{record_str}; return\g<2>',

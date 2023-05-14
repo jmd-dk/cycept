@@ -126,11 +126,12 @@ def test_lambda():
 def test_closure():
     @jit
     def f(a):
-        def g(a):
-            return 2*a
-        return 1 + g(a)
+        def g():
+            return 5*a + 7*b
+        return 1 + 2*a + 3*b + g()
+    b = 2
     for _ in range(2):
-        assert f(3) == 7
+        assert f(3) == 42
 
 
 def test_classdef():

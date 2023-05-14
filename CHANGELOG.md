@@ -13,6 +13,9 @@
 - Added `test_nbody` to performance test suite.
 - Added `test_array_1` to performance test suite.
 
+#### 👌 Other changes
+- Better support for closures and classes.
+
 [Commits since 0.0.4](https://github.com/jmd-dk/cycept/compare/v0.0.4...main)
 
 ---
