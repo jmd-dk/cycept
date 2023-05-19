@@ -423,6 +423,29 @@ def test_wallis():
         assert timings.cycept < timings.python / 50
 
 
+def test_leibniz():
+    """Compute π using the Leibniz formula.
+    This tests the performance of floating-point operations.
+    """
+    def f(n):
+        π = 1
+        sgn = 1
+        for i in range(3, n, 2):
+            sgn = -sgn
+            π += sgn / i
+        π *= 4
+        return π
+    def f_numpy(n):
+        denom = np.arange(1, n, 2, dtype=np.int64)
+        num = np.ones_like(denom)
+        num[1::2] = -1
+        return 4 * (num / denom).sum()
+    n = 3_000_000
+    timings = perf((f, f_numpy), n)
+    if setup['asserts']:
+        assert timings.cycept < timings.python / 10
+
+
 def test_fibonacci():
     """Compute the n'th Fibonacci number using recursion.
     This tests the performance of recursive function calls.
