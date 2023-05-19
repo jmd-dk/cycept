@@ -407,9 +407,10 @@ def test_prime():
 
 def test_wallis():
     """Compute π using the Wallis product.
-    This tests the performance of floating-point operations.
+    This tests the performance of integer and floating-point operations.
     """
     def f(n):
+        i : np.int64
         π = 2
         for i in range(1, n):
             π *= 4 * i ** 2 / (4 * i ** 2 - 1)
