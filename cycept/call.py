@@ -257,7 +257,7 @@ class FunctionCall:
         lines = source.split('\n')
         for i, line in enumerate(lines):
             if match := re.search(r'^@(.+?)(\(|$)', line):
-                deco_name = match.group(1).strip()
+                deco_name = match[1].strip()
                 try:
                     deco_func = eval(deco_name, self.module_dict)
                 except Exception:
@@ -367,7 +367,7 @@ class FunctionCall:
         self._source = UnicodeRenamer(self).rename()
         # Note that name changes caused by the above ASCIIfication
         # makes the AST, the function signature and many other attributes
-        # invalid, yet me do not flag any attributes as such.
+        # invalid, yet we do not flag any attributes as such.
 
     # Method for wrapping NumPy array variables in numpy.asarray()
     # whenever operations are used that do not work with Cython memoryviews.
