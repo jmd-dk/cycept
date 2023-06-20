@@ -123,6 +123,17 @@ def test_lambda():
     test(lambda a: 2*a)
 
 
+def test_callfromjitted():
+    @jit
+    def f(a):
+        return 5*a
+    @jit
+    def g(b):
+        return f(b)
+    for _ in range(2):
+        assert g(2) == 10
+
+
 def test_closure():
     @jit
     def f(a):

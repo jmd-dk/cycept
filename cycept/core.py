@@ -568,7 +568,9 @@ def record_locals(call):
     # the function directly to the module.
     @contextlib.contextmanager
     def hack_module_dict():
-        call.module_dict[cycept_module_refname] = sys.modules['cycept.core']
+        add_module_ref = (cycept_module_refname not in call.module_dict)
+        if add_module_ref:
+            call.module_dict[cycept_module_refname] = sys.modules['cycept.core']
         nonlocals_ori = {}
         for name, val in call.nonlocals.items():
             if name in call.module_dict:
@@ -579,7 +581,8 @@ def record_locals(call):
         except Exception:
             raise
         finally:
-            call.module_dict.pop(cycept_module_refname)
+            if add_module_ref:
+                call.module_dict.pop(cycept_module_refname)
             for name in call.nonlocals:
                 call.module_dict.pop(name)
             for name, val in nonlocals_ori.items():
