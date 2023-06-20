@@ -2,6 +2,24 @@
 
 <br/>
 
+### 🚀 [0.0.6](https://github.com/jmd-dk/cycept/releases/tag/v0.0.6) — 2023-07-20
+
+#### 🤖 Tests
+- Added `test_leibniz` to performance test suite.
+- Fixed problem with `test_wallis` for 32-bit systems.
+
+#### 🐛 Bugs fixed
+- Fixed double popping of `'__cycept__'` from `call.module_dict` ([#1](https://github.com/jmd-dk/cycept/issues/1)).
+
+#### 👌 Other changes
+- Safer version detection.
+
+[Commits since 0.0.5](https://github.com/jmd-dk/cycept/compare/v0.0.5...v0.0.6)
+
+---
+<br/><br/>
+
+
 ### 🚀 [0.0.5](https://github.com/jmd-dk/cycept/releases/tag/v0.0.5) — 2023-05-14
 
 #### ✨ Features
